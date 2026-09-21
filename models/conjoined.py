@@ -79,6 +79,7 @@ class ConjoinedTournament:
 
         remaining_teams = [team for team in self.teams if stage.get_num_set_losses(team) < 2]
 
+
         standings2teams = stage.standings_to_teams()
 
 
