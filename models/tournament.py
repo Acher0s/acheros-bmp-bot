@@ -57,7 +57,7 @@ class Match:
         self.result = res
 
 
-class Set:
+class TourneySet:
     def __init__(self, team1, team2, best_of):
         self.best_of: int = best_of
         self.team1: Team = team1
@@ -92,7 +92,7 @@ class Set:
 
 class Round:
     def __init__(self, matchups=None):
-        self.matchups: List[Set] = matchups if matchups is not None else []
+        self.matchups: List[TourneySet] = matchups if matchups is not None else []
 
     def is_finished(self) -> bool:
         for _set in self.matchups:
@@ -183,5 +183,13 @@ class Stage:
         return res
 
     def played_opponents(self, team: Team):
-        ...
+        res = []
+        for i in range(self.cur_round_idx):
+            r = self.rounds[i]
+            for m in r.matchups:
+                if m.team1 == team:
+                    res.append(m.team2)
+                if m.team2 == team:
+                    res.append(m.team1)
 
+        return res

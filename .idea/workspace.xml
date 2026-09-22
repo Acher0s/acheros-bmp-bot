@@ -5,52 +5,10 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="74724c13-d2b6-4c1b-9d6e-4c3fe6f68e4b" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/.idea/acheros-bmp-bot.iml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/inspectionProfiles/Project_Default.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/inspectionProfiles/profiles_settings.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/modules.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/assets/decks/abandoned.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/assets/decks/anaglyph.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/assets/decks/black.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/assets/decks/blue.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/assets/decks/checkered.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/assets/decks/cocktail.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/assets/decks/erratic.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/assets/decks/ghost.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/assets/decks/gradient.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/assets/decks/green.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/assets/decks/heidelberg.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/assets/decks/indigo.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/assets/decks/magic.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/assets/decks/nebula.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/assets/decks/oracle.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/assets/decks/orange.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/assets/decks/painted.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/assets/decks/plasma.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/assets/decks/red.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/assets/decks/violet.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/assets/decks/yellow.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/assets/decks/zodiac.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/assets/stakes/black.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/assets/stakes/blue.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/assets/stakes/gold.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/assets/stakes/green.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/assets/stakes/orange.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/assets/stakes/planet.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/assets/stakes/purple.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/assets/stakes/red.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/assets/stakes/spectral+.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/assets/stakes/spectral.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/assets/stakes/white.png" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/models/conjoined.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/models/deck.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/models/selection.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/models/stake.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/models/tournament.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/models/conjoined.py" beforeDir="false" afterPath="$PROJECT_DIR$/models/conjoined.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/models/tournament.py" beforeDir="false" afterPath="$PROJECT_DIR$/models/tournament.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -67,6 +25,18 @@
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
+  <component name="GitHubPullRequestSearchHistory"><![CDATA[{
+  "lastFilter": {
+    "state": "OPEN",
+    "assignee": "LexBruynooghe"
+  }
+}]]></component>
+  <component name="GithubPullRequestsUISettings"><![CDATA[{
+  "selectedUrlAndAccountId": {
+    "url": "https://github.com/Acher0s/acheros-bmp-bot",
+    "accountId": "3eafba49-998a-4f59-958a-466d80a6c78c"
+  }
+}]]></component>
   <component name="ProjectColorInfo">{
   &quot;associatedIndex&quot;: 2
 }</component>
@@ -181,7 +151,8 @@
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
-        <option value="bundled-python-sdk-09665e90c3a7-b11f5e8da5ad-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-233.15026.15" />
+        <option value="bundled-js-predefined-d6986cc7102b-5c90d61e3bab-JavaScript-PY-242.23726.102" />
+        <option value="bundled-python-sdk-5e1850174b45-399fe30bd8c1-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-242.23726.102" />
       </set>
     </attachedChunks>
   </component>
@@ -199,6 +170,7 @@
       <workItem from="1789466570528" duration="6406000" />
       <workItem from="1789556999824" duration="16024000" />
       <workItem from="1789634533918" duration="8453000" />
+      <workItem from="1790002780728" duration="4266000" />
     </task>
     <servers />
   </component>

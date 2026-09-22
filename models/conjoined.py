@@ -1,10 +1,9 @@
 import random
-from typing import List, Tuple
+from typing import List, Tuple, Set
 
 from models.deck import DECKS, Deck
 from models.stake import STAKES, Stake
-from models.tournament import Team, Stage, Round, Set
-
+from models.tournament import Team, Stage, Round, TourneySet
 
 class ConjoinedTournament:
     def __init__(self):
@@ -61,7 +60,7 @@ class ConjoinedTournament:
             t2 = random.choice(remaining_teams)
             remaining_teams.remove(t2)
 
-            r1_matchups.append(Set(t1, t2, best_of=1))
+            r1_matchups.append(TourneySet(t1, t2, best_of=1))
 
         r1 = Round(r1_matchups)
 
@@ -79,12 +78,36 @@ class ConjoinedTournament:
 
         remaining_teams = [team for team in self.teams if stage.get_num_set_losses(team) < 2]
 
-
         standings2teams = stage.standings_to_teams()
 
+        next_round_matchups = []
+
+        for standing, teams in standings2teams.items():
+            # generate all possible pairings
+            all_possible_pairings = generate_pairings(teams)
+
+            # keep ones with minimum repeat pairings
+            min_repeats = [[p] for p in all_possible_pairings]
 
 
+def generate_pairings(teams_list):
+    """Recursively generates all distinct full match pairings for a list of teams."""
+    if len(teams_list) < 2:
+        return [[]]
 
+    first = teams_list[0]
+    all_pairings = []
+
+    # Pair the first team with every other possible opponent
+    for i in range(1, len(teams_list)):
+        pair = {first, teams_list[i]}
+        remaining = teams_list[1:i] + teams_list[i + 1:]
+
+        # Recursively pair the rest of the teams
+        for sub_pairing in generate_pairings(remaining):
+            all_pairings.append([pair] + sub_pairing)
+
+    return all_pairings
 
 
 
