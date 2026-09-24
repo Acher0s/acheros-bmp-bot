@@ -87,38 +87,35 @@ class ConjoinedTournament:
             all_possible_pairings = generate_pairings(teams)
 
             # keep ones with minimum repeat pairings
-            min_repeats = [[p] for p in all_possible_pairings]
+            pairings2num_repeat_pairings = {... for pairings in all_possible_pairings}
+
+
 
 
 def generate_pairings(teams_list):
-    """Recursively generates all distinct full match pairings for a list of teams."""
+    """Yields all distinct full match pairings lazily."""
     if len(teams_list) < 2:
-        return [[]]
+        yield []
+        return
 
     first = teams_list[0]
-    all_pairings = []
-
-    # Pair the first team with every other possible opponent
     for i in range(1, len(teams_list)):
-        pair = {first, teams_list[i]}
+        pair = (first, teams_list[i])  # Tuples are faster than sets
         remaining = teams_list[1:i] + teams_list[i + 1:]
 
-        # Recursively pair the rest of the teams
         for sub_pairing in generate_pairings(remaining):
-            all_pairings.append([pair] + sub_pairing)
-
-    return all_pairings
-
-
-
-
-
-
-
+            yield [pair] + sub_pairing
 
 if __name__ == "__main__":
     t = ConjoinedTournament()
 
-    print([f"{d} / {s}" for d, s in t.generate_selection()])
+    # print([f"{d} / {s}" for d, s in t.generate_selection()])
 
+
+
+    teams = [Team(f"Team{i}") for i in range(16)]
+
+    pairings = generate_pairings(teams)
+
+    print(pairings)
 

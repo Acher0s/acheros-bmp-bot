@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Set
 
 from models.deck import Deck
 from models.stake import Stake
@@ -106,11 +106,15 @@ class Round:
             if m.get_winner() is not None:
                 res.append(m.get_winner())
 
+        return res
+
     def get_losing_teams(self):
         res = []
         for m in self.matchups:
             if m.get_loser() is not None:
                 res.append(m.get_loser())
+
+        return res
 
     def get_teams(self):
         res = set()
@@ -193,3 +197,11 @@ class Stage:
                     res.append(m.team1)
 
         return res
+
+def count_rematches(pairing: List[Tuple[Team, Team]], played_history: Dict[Team, Set[Team]]) -> int:
+    """Calculates total repeat matches in a candidate pairing."""
+    repeats = 0
+    for t1, t2 in pairing:
+        if t2 in played_history.get(t1, set()):
+            repeats += 1
+    return repeats
