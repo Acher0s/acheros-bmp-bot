@@ -23,7 +23,7 @@ class Stake:
 
 _stake_names = ["White", "Green", "Black", "Purple", "Gold", "Spectral+"]
 
-STAKES = [Stake(name, Path(f"../assets/stakes/{name.lower()}.png")) for name in _stake_names]
+STAKES = [Stake(name, Path(f"./assets/stakes/{name.lower()}.png")) for name in _stake_names]
 
 
 if __name__ == "__main__":

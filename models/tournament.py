@@ -1,3 +1,4 @@
+import random
 from enum import Enum
 from typing import List, Tuple, Dict, Set
 
@@ -18,6 +19,12 @@ class Team:
     def __init__(self, name):
         self.name = name
         self.players: List[Player] = []
+
+    def __str__(self):
+        return f"{self.name}({", ".join([str(p) for p in self.players])})"
+
+    def __repr__(self):
+        return self.__str__()
 
     def add_player(self, player: Player):
         if player not in self.players:
@@ -55,6 +62,7 @@ class Match:
 
     def report_result(self, res: GameResult):
         self.result = res
+        self.state = GameState.FINISHED
 
 
 class TourneySet:
@@ -63,6 +71,10 @@ class TourneySet:
         self.team1: Team = team1
         self.team2: Team = team2
         self.matches: List[Match] = []
+
+    def __str__(self, tabs=0):
+        t1_score, t2_score = self.get_standings()
+        return "\t" * tabs + f"{self.team1} VS {self.team2} {t1_score} - {t2_score} (Bo{self.best_of})" + (f"\tWINNER: {self.get_winner()}" if self.get_winner() is not None else "")
 
     def get_standings(self) -> Tuple[int, int]:
         res = [0, 0]
@@ -80,7 +92,7 @@ class TourneySet:
                 if i == 0:
                     return self.team1
                 return self.team2
-            return None
+        return None
 
     def get_loser(self):
         if self.get_winner() is None:
@@ -93,6 +105,11 @@ class TourneySet:
 class Round:
     def __init__(self, matchups=None):
         self.matchups: List[TourneySet] = matchups if matchups is not None else []
+
+    def __str__(self, tabs=0):
+        return ("\t" * tabs + f"Round(\n" +
+                ",\n".join([m.__str__(tabs=tabs+1) for m in self.matchups]) +
+                "\n" + "\t" * tabs + ")")
 
     def is_finished(self) -> bool:
         for _set in self.matchups:
@@ -130,6 +147,15 @@ class Stage:
     def __init__(self):
         self.cur_round_idx: int = 0
         self.rounds: List[Round] = []
+
+    def __str__(self, tabs=0):
+        return ("\t" * tabs + "Stage(" +
+                f"\n{"\n".join([f"{r.__str__(tabs=tabs + 1)}" for r in self.rounds])}" +
+                "\n" + "\t" * tabs + ")"
+                )
+
+    def __repr__(self):
+        return str(self)
 
     def _validate_round(self, r: Round) -> (True, str):
         seen = set()
@@ -176,10 +202,9 @@ class Stage:
     def standings_to_teams(self) -> Dict[Tuple[int, int], List[Team]]:
         res = {}
 
-        current_round = self.get_current_round()
-        for team in current_round.get_teams():
+        for team in self.rounds[0].get_teams():
             team_standing = (self.get_num_set_wins(team), self.get_num_set_losses(team))
-            if res.get(team_standing) is not None:
+            if res.get(team_standing) is None:
                 res[team_standing] = [team]
             else:
                 res[team_standing].append(team)
@@ -198,6 +223,20 @@ class Stage:
 
         return res
 
+    def get_played_history(self) -> Dict[Team, Set[Team]]:
+        """Returns a lookup dictionary of sets of past opponents for each team."""
+        history = {}
+        for r in self.rounds:
+            for m in r.matchups:
+                if m.team1 not in history:
+                    history[m.team1] = set()
+                if m.team2 not in history:
+                    history[m.team2] = set()
+
+                history[m.team1].add(m.team2)
+                history[m.team2].add(m.team1)
+        return history
+
 def count_rematches(pairing: List[Tuple[Team, Team]], played_history: Dict[Team, Set[Team]]) -> int:
     """Calculates total repeat matches in a candidate pairing."""
     repeats = 0
@@ -205,3 +244,48 @@ def count_rematches(pairing: List[Tuple[Team, Team]], played_history: Dict[Team,
         if t2 in played_history.get(t1, set()):
             repeats += 1
     return repeats
+
+
+def match_bracket_group(teams: List[Team], played_history: Dict[Team, Set[Team]]) -> List[Tuple[Team, Team]]:
+    """
+    Pairs a pool of teams, prioritizing zero rematches.
+    Uses randomized backtracking for speed.
+    """
+    shuffled_teams = teams.copy()
+    random.shuffle(shuffled_teams)
+
+    best_pairing = []
+    min_rematches = float('inf')
+
+    def backtrack(remaining: List[Team], current_pairing: List[Tuple[Team, Team]], current_cost: int):
+        nonlocal best_pairing, min_rematches
+
+        # Prune if this branch is already worse than our best solution
+        if current_cost >= min_rematches:
+            return
+
+        if not remaining:
+            if current_cost < min_rematches:
+                min_rematches = current_cost
+                best_pairing = list(current_pairing)
+            return
+
+        first = remaining[0]
+        rest = remaining[1:]
+
+        # Randomize choice of opponents to keep tournament random
+        candidates = list(rest)
+        random.shuffle(candidates)
+
+        for opponent in candidates:
+            is_repeat = 1 if opponent in played_history.get(first, set()) else 0
+
+            next_remaining = [t for t in rest if t != opponent]
+            backtrack(next_remaining, current_pairing + [(first, opponent)], current_cost + is_repeat)
+
+            # Optimization: If we found a zero-rematch pairing, stop immediately
+            if min_rematches == 0:
+                return
+
+    backtrack(shuffled_teams, [], 0)
+    return best_pairing

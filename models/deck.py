@@ -24,7 +24,7 @@ class Deck:
 _deck_names = ["Red", "Blue", "Yellow", "Green", "Black", "Magic", "Nebula", "Ghost", "Abandoned", "Checkered",
                "Zodiac", "Painted", "Anaglyph", "Plasma", "Erratic", "Violet", "Orange"]
 
-DECKS = [Deck(name, Path(f"../assets/decks/{name.lower()}.png")) for name in _deck_names]
+DECKS = [Deck(name, Path(f"./assets/decks/{name.lower()}.png")) for name in _deck_names]
 
 if __name__ == "__main__":
     print(DECKS)
