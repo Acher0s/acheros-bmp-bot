@@ -5,24 +5,24 @@ using the PNGs in assets/. It is safe to run again: emojis that already exist
 (matched by name) are skipped, so it only fills in what's missing.
 
 Emoji names:  deck_<name>  and  stake_<name>  (lowercase, e.g. deck_red, stake_spectral).
-Later code can find an emoji with:
-    discord.utils.get(guild.emojis, name=deck_emoji_name(deck))
+The naming and lookup helpers live in emojis.py (shared with the vote messages).
 
 The bot needs the "Manage Expressions" permission (called "Manage Emojis and
 Stickers" in older Discord versions). Run the bot from the project folder, since
 the asset paths are relative (./assets/...).
 """
 import logging
-import re
+import random
 from pathlib import Path
 
 import discord
 from discord.ext import commands
 
-from models.deck import DECKS, Deck
-from models.stake import STAKES, Stake
-from persistence import StorageError
 from bot import is_manager
+from emojis import deck_emoji_name, stake_emoji_name
+from models.deck import DECKS
+from models.stake import STAKES
+from persistence import StorageError
 
 log = logging.getLogger(__name__)
 
@@ -31,19 +31,6 @@ MAX_EMOJI_BYTES = 256 * 1024  # Discord's limit for an emoji image
 
 class UtilError(Exception):
     """A rule violation. The message is shown to the user in Discord as-is."""
-
-
-def _safe(name: str) -> str:
-    """Emoji names only allow letters, digits and underscores ('Spectral+' -> 'spectral')."""
-    return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
-
-
-def deck_emoji_name(deck: Deck) -> str:
-    return f"deck_{_safe(deck.name)}"
-
-
-def stake_emoji_name(stake: Stake) -> str:
-    return f"stake_{_safe(stake.name)}"
 
 
 class Util(commands.Cog):
@@ -113,6 +100,17 @@ class Util(commands.Cog):
                          + ". Fix the problem and run the command again; it only adds what's missing.")
         await ctx.send("\n".join(lines))
 
+    @util.command(name="fakevotes", usage="[N]")
+    async def fakevotes(self, ctx: commands.Context, n: int = 32):
+        """DEV: cast N random votes from fake voters on the running poll."""
+        sel = self.bot.get_cog("Selection")
+        vote = sel.active.get(ctx.guild.id) if sel else None
+        if vote is None:
+            raise UtilError("There's no vote running.")
+        fakes = sum(1 for uid in vote.ballots if uid < 0)  # fake voters have negative ids
+        for i in range(1, n + 1):
+            vote.ballots[-(fakes + i)] = random.randrange(len(vote.selection))
+        await ctx.send(f"Cast {n} fake vote(s).")
     # -- errors ---------------------------------------------------------------
 
     async def cog_command_error(self, ctx: commands.Context, error: Exception):

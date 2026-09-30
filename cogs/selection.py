@@ -10,6 +10,11 @@ How voting works:
     the message always match the real votes.
   * At !selection stopvote the ballots are re-checked (someone may have left or
     been eliminated meanwhile) and the counts are stored on the tournament.
+  * !selection pullrandom takes a vote-weighted random pick from the latest
+    recorded vote and shows it as text plus a picture (see visuals.py).
+
+Decks and stakes are shown with their custom emojis (see emojis.py, uploaded by
+!util initemojis); without those emojis the messages fall back to plain text.
 
 The vote that is currently running is kept in memory only. Recorded results are
 saved to disk, but a vote still open when the bot restarts is lost.
@@ -17,17 +22,20 @@ saved to disk, but a vote still open when the bot restarts is lost.
 Bot permissions needed in the voting channel: Add Reactions, Manage Messages,
 Read Message History.
 """
+import asyncio
 import logging
+import random
 from dataclasses import dataclass, field
 
 import discord
 from discord.ext import commands
 
-from bot import is_manager
 from conjoined import VoteResults
+from emojis import combo_label
 from models.deck import Deck
 from models.stake import Stake
 from persistence import StorageError
+from visuals import render_pull_image
 
 log = logging.getLogger(__name__)
 
@@ -40,6 +48,9 @@ DEFAULT_OPTIONS = 9
 class SelectionError(Exception):
     """A rule violation. The message is shown to the user in Discord as-is."""
 
+
+def is_manager(member: discord.Member) -> bool:
+    return member.guild_permissions.administrator
 
 
 def _option_index(emoji: discord.PartialEmoji, n_options: int) -> int | None:
@@ -58,19 +69,19 @@ def _has_voting_role(tournament, roles) -> bool:
     return any(r.id in role_ids for r in roles)
 
 
-def _options_text(selection: list[tuple[Deck, Stake]]) -> str:
-    return "\n".join(
-        f"{emoji} **{deck}** deck / **{stake}** stake"
+def _options_text(selection: list[tuple[Deck, Stake]], guild: discord.Guild) -> str:
+    return "\n\n".join(
+        f"{emoji} {combo_label(guild, deck, stake)}"
         for emoji, (deck, stake) in zip(NUMBER_EMOJIS, selection)
     )
 
 
-def _results_text(results: VoteResults) -> str:
+def _results_text(results: VoteResults, guild: discord.Guild) -> str:
     total = results.count_votes()
     lines = []
     for emoji, (deck, stake), votes in zip(NUMBER_EMOJIS, results.selection, results.votes):
         pct = f" ({votes / total:.0%})" if total else ""
-        lines.append(f"{emoji} **{deck}** deck / **{stake}** stake: {votes}{pct}")
+        lines.append(f"{emoji} {combo_label(guild, deck, stake)}: {votes}{pct}")
     return "\n".join(lines)
 
 
@@ -127,7 +138,8 @@ class Selection(commands.Cog):
         vote = ActiveVote(selection=t.generate_selection(n))
         self.active[ctx.guild.id] = vote  # reserve the slot before any `await`
 
-        embed = discord.Embed(title="Vote: pick a deck and stake", description=_options_text(vote.selection))
+        embed = discord.Embed(title="Vote: pick a deck and stake",
+                              description=_options_text(vote.selection, ctx.guild))
         embed.set_footer(text="React with a number to vote (one vote per player, you can change it). "
                               "Only members of teams still in the tournament can vote; other reactions are removed.")
         try:
@@ -171,7 +183,7 @@ class Selection(commands.Cog):
 
         await self._close_message(vote, "Vote closed")
         embed = discord.Embed(title=f"Vote closed and recorded: {sum(counts)} valid vote(s)",
-                              description=_results_text(results))
+                              description=_results_text(results, ctx.guild))
         if ignored:
             embed.set_footer(text=f"{ignored} vote(s) ignored because the voter is no longer on an active team.")
         await ctx.send(embed=embed)
@@ -185,9 +197,41 @@ class Selection(commands.Cog):
         await self._close_message(vote, "Vote discarded")
         await ctx.send("Vote discarded. Nothing was recorded.")
 
+    @selection.command(name="pullrandom")
+    async def pullrandom(self, ctx: commands.Context):
+        """Pull a random combo from the latest recorded vote, weighted by the votes.
+        Shows the result as text and as a picture. Nothing is recorded: running it again re-rolls."""
+        t = self.bot.store.get(ctx.guild.id)
+        if not t.vote_results:
+            raise SelectionError("No vote has been recorded yet. Use `!selection startvote`, then `!selection stopvote`.")
+        results = t.vote_results[-1]
+        if results.count_votes() == 0:
+            raise SelectionError("The latest vote has no valid votes, so there's nothing to pull from.")
+
+        combo = results.random_weighted_selection()
+        idx = results.selection.index(combo)
+        deck, stake = combo
+
+        embed = discord.Embed(
+            title="Random pull from the latest vote",
+            description=(f"**Result:** {NUMBER_EMOJIS[idx]} {combo_label(ctx.guild, deck, stake)}"
+                         # f"\n\n{_results_text(results, ctx.guild)}"
+                         ),
+        )
+        try:  # the picture is a bonus: if it can't be drawn, still send the text result
+            image = await asyncio.to_thread(render_pull_image, results, idx, random.random())
+        except Exception:
+            log.exception("Couldn't render the pull image")
+            await ctx.send(embed=embed)
+            return
+        embed.set_image(url="attachment://pull.png")
+        await ctx.send(embed=embed, file=discord.File(image, filename="pull.png"))
+
     # -- helpers --------------------------------------------------------------
 
     async def _still_eligible(self, guild: discord.Guild, uid: int) -> bool:
+        if uid < 0:  # DEV: fake voters from !util fakevotes
+            return True
         t = self.bot.store.get(guild.id)
         member = guild.get_member(uid)
         if member is None:
@@ -202,7 +246,8 @@ class Selection(commands.Cog):
         if vote.message is None:
             return
         try:
-            await vote.message.edit(embed=discord.Embed(title=title, description=_options_text(vote.selection)))
+            await vote.message.edit(embed=discord.Embed(
+                title=title, description=_options_text(vote.selection, vote.message.guild)))
             await vote.message.clear_reactions()
         except discord.HTTPException as e:
             log.warning("Couldn't tidy up the vote message: %r", e)

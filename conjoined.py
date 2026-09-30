@@ -5,13 +5,14 @@ from models.deck import DECKS, Deck
 from models.stake import STAKES, Stake
 from models.tournament import Team, Stage, Round, TourneySet, match_bracket_group, GameResult, Match
 
-MAX_SELECTION_RETRIES = 5
+MAX_SELECTION_RETRIES = 10
 
 class ConjoinedTournament:
     def __init__(self, teams=None):
         self.banned_decks: List[Deck] = []
         self.banned_stakes: List[Stake] = []
         self.teams: List[Team] = [] if teams is None else teams
+        self.eliminated_teams: set[Team] = set()
         self.started: bool = False
         self.stages: List[Stage] = []
         self.cur_stage_idx: int = 0
@@ -30,12 +31,8 @@ class ConjoinedTournament:
         return len(self.teams) == 16
 
     def get_active_teams(self) -> List[Team]:
-        """Teams still in the tournament.
-
-        DUMMY: for now every registered team counts as active. Later this should
-        exclude eliminated teams (e.g. 2+ set losses in stage 1).
-        """
-        return list(self.teams)
+        """Teams still in the tournament."""
+        return [team for team in self.teams if team not in self.eliminated_teams]
 
     def get_voting_role_ids(self) -> Set[int]:
         """Discord role ids that grant voting rights (one per active team)."""
@@ -105,17 +102,15 @@ class ConjoinedTournament:
         stage: Stage = self.stages[self.cur_stage_idx]
         if not stage.get_current_round().is_finished():
             print('Current round has not yet finished')
-
-
         remaining_teams = [team for team in self.teams if stage.get_num_set_losses(team) < 2]
 
         standings2teams = stage.standings_to_teams()
 
         # remove teams with 2 losses
-        standings2teams[(0,2)] = []
-        standings2teams[(1,2)] = []
-        standings2teams[(2,2)] = []
-        standings2teams[(3,2)] = []
+        for i in range(4):
+            self.eliminated_teams.union(set(standings2teams[(i, 2)]))
+            standings2teams[(i, 2)] = []
+
 
         played_history = stage.get_played_history()
 

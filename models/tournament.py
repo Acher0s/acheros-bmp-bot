@@ -22,7 +22,7 @@ class Team:
         self.role_id: int | None = None  # Discord role shared by all members of the team
 
     def __str__(self):
-        return f"{self.name}({", ".join([str(p) for p in self.players])})"
+        return f"{self.name}(" + ", ".join([str(p) for p in self.players])
 
     def __repr__(self):
         return self.__str__()
@@ -102,6 +102,13 @@ class TourneySet:
             return self.team2
         return self.team1
 
+    def add_match(self, match: Match):
+        if self.get_winner() is not None:
+            print("set already completed")
+            return
+
+        self.matches.append(match)
+
 
 class Round:
     def __init__(self, matchups=None):
@@ -142,6 +149,11 @@ class Round:
 
         return res
 
+    def add_match_all(self, deck: Deck, stake: Stake):
+        for m in self.matchups:
+            m.add_match(Match(m.team1, m.team2, deck, stake))
+
+
 
 
 class Stage:
@@ -151,7 +163,7 @@ class Stage:
 
     def __str__(self, tabs=0):
         return ("\t" * tabs + "Stage(" +
-                f"\n{"\n".join([f"{r.__str__(tabs=tabs + 1)}" for r in self.rounds])}" +
+                f"\n" + "\n".join([f"{r.__str__(tabs=tabs + 1)}" for r in self.rounds]) +
                 "\n" + "\t" * tabs + ")"
                 )
 
