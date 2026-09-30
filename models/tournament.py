@@ -19,6 +19,7 @@ class Team:
     def __init__(self, name):
         self.name = name
         self.players: List[Player] = []
+        self.role_id: int | None = None  # Discord role shared by all members of the team
 
     def __str__(self):
         return f"{self.name}({", ".join([str(p) for p in self.players])})"

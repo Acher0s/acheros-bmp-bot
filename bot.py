@@ -1,9 +1,12 @@
 import os
 import logging
+from pathlib import Path
 
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
+
+from persistence import TournamentStore
 
 load_dotenv()
 
@@ -16,8 +19,28 @@ logging.basicConfig(level=logging.INFO)
 intents = discord.Intents.default()
 intents.message_content = True
 
-bot = commands.Bot(command_prefix="!", intents=intents)
 
+class TournamentBot(commands.Bot):
+    def __init__(self):
+        super().__init__(
+            command_prefix="!",
+            intents=intents,
+            # Let <@id> mentions display as names without actually pinging anyone.
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+        # Saved tournaments live in ./data next to this file (one JSON file per server).
+        self.store = TournamentStore(Path(__file__).parent / "data")
+
+    async def setup_hook(self):
+        await self.load_extension("cogs.teams")
+        await self.load_extension("cogs.selection")
+        await self.load_extension("cogs.util")
+
+
+bot = TournamentBot()
+
+def is_manager(member: discord.Member) -> bool:
+    return member.guild_permissions.administrator
 
 @bot.event
 async def on_ready():

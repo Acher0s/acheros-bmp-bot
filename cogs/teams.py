@@ -4,6 +4,7 @@ import discord
 from discord.ext import commands
 
 import registration as reg
+import team_roles
 from models.tournament import Player, Team
 from persistence import StorageError
 
@@ -57,6 +58,32 @@ class Teams(commands.Cog):
         if any(u.bot for u in users):
             raise reg.RegistrationError("Bots can't be on a team.")
 
+    # Roles are updated AFTER the change is saved (they need `await`). If Discord
+    # refuses, the team change still stands and the user gets a warning; running
+    # `!team syncroles` later repairs everything.
+
+    async def _sync_roles(self, ctx: commands.Context, team: Team, removed=()) -> str:
+        """Create/assign/remove the team's role. Returns a warning to append to the reply ('' if fine)."""
+        before = team.role_id
+        try:
+            await team_roles.sync_team(ctx.guild, team, removed)
+            return ""
+        except discord.HTTPException as e:
+            log.warning("Role sync failed for team %s: %r", team.name, e)
+            return ("\n:warning: The change is saved, but I couldn't update the team role. "
+                    "I need the **Manage Roles** permission; once that's fixed, run `!team syncroles`.")
+        finally:
+            if team.role_id != before:  # a new role was created
+                self._save(ctx)
+
+    async def _delete_role(self, ctx: commands.Context, role_id: int | None) -> str:
+        try:
+            await team_roles.delete_role(ctx.guild, role_id)
+            return ""
+        except discord.HTTPException as e:
+            log.warning("Couldn't delete team role %s: %r", role_id, e)
+            return "\n:warning: I couldn't delete the team's role. Please delete it manually."
+
     # -- commands -------------------------------------------------------------
 
     @commands.group(name="team", invoke_without_command=True)
@@ -76,7 +103,8 @@ class Teams(commands.Cog):
         t = self._tournament(ctx)
         team = reg.create_team(t, name, [to_player(m) for m in roster])
         self._save(ctx)
-        await ctx.send(f"Created {format_team(team)}. {len(t.teams)} team(s) registered.")
+        warn = await self._sync_roles(ctx, team)
+        await ctx.send(f"Created {format_team(team)}. {len(t.teams)} team(s) registered." + warn)
 
     @team.command(name="add", usage='"<team name>" @player [@player ...]')
     async def team_add(self, ctx: commands.Context, team_name: str, *members: discord.Member):
@@ -87,10 +115,11 @@ class Teams(commands.Cog):
 
         t = self._tournament(ctx)
         team = reg.require_team(t, team_name)
-        self._require_manager(ctx, team)
+        self._require_manager(ctx)
         reg.add_players(t, team, [to_player(m) for m in members])
         self._save(ctx)
-        await ctx.send(f"Updated {format_team(team)}.")
+        warn = await self._sync_roles(ctx, team)
+        await ctx.send(f"Updated {format_team(team)}." + warn)
 
     @team.command(name="remove", usage='"<team name>" @player [@player ...]')
     async def team_remove(self, ctx: commands.Context, team_name: str, *users: discord.User):
@@ -102,12 +131,16 @@ class Teams(commands.Cog):
         t = self._tournament(ctx)
         team = reg.require_team(t, team_name)
         self._require_manager(ctx)
-        disbanded = reg.remove_players(t, team, [to_player(u) for u in users])
+        removed = [to_player(u) for u in users]
+        role_id = team.role_id
+        disbanded = reg.remove_players(t, team, removed)
         self._save(ctx)
         if disbanded:
-            await ctx.send(f"**{discord.utils.escape_markdown(team.name)}** has no players left, so it was disbanded.")
+            warn = await self._delete_role(ctx, role_id)
+            await ctx.send(f"**{discord.utils.escape_markdown(team.name)}** has no players left, so it was disbanded." + warn)
         else:
-            await ctx.send(f"Updated {format_team(team)}.")
+            warn = await self._sync_roles(ctx, team, removed)
+            await ctx.send(f"Updated {format_team(team)}." + warn)
 
     @team.command(name="disband")
     async def team_disband(self, ctx: commands.Context, *, team_name: str):
@@ -115,9 +148,26 @@ class Teams(commands.Cog):
         t = self._tournament(ctx)
         team = reg.require_team(t, team_name)
         self._require_manager(ctx)
+        role_id = team.role_id
         reg.disband_team(t, team)
         self._save(ctx)
-        await ctx.send(f"Disbanded **{discord.utils.escape_markdown(team.name)}**.")
+        warn = await self._delete_role(ctx, role_id)
+        await ctx.send(f"Disbanded **{discord.utils.escape_markdown(team.name)}**." + warn)
+
+    @team.command(name="syncroles")
+    async def team_syncroles(self, ctx: commands.Context):
+        """Create/repair the role of every team and hand it to all members (organizers only).
+        Run this once for teams registered before roles existed."""
+        self._require_manager(ctx)
+        teams = list(self._tournament(ctx).teams)
+        before = [tm.role_id for tm in teams]
+        try:
+            for tm in teams:
+                await team_roles.sync_team(ctx.guild, tm)
+        finally:
+            if [tm.role_id for tm in teams] != before:
+                self._save(ctx)
+        await ctx.send(f"Synced roles for {len(teams)} team(s).")
 
     @team.command(name="list")
     async def team_list(self, ctx: commands.Context):
@@ -142,6 +192,9 @@ class Teams(commands.Cog):
             await ctx.send("Couldn't load or save the tournament data, so nothing was changed. Check the bot's log.")
         elif isinstance(error, commands.NoPrivateMessage):
             await ctx.send("Team commands only work inside a server.")
+        elif isinstance(error, discord.Forbidden):
+            log.warning("Missing permission while running %s: %r", ctx.command, error)
+            await ctx.send("I'm missing a Discord permission (I need **Manage Roles**).")
         elif isinstance(error, (commands.BadArgument, commands.MissingRequiredArgument)):
             await ctx.send(
                 f"I couldn't read that. Usage: `!{ctx.command.qualified_name} {ctx.command.signature}`\n"

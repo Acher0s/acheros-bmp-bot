@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 import discord
 from discord.ext import commands
 
+from bot import is_manager
 from conjoined import VoteResults
 from models.deck import Deck
 from models.stake import Stake
@@ -39,9 +40,6 @@ DEFAULT_OPTIONS = 9
 class SelectionError(Exception):
     """A rule violation. The message is shown to the user in Discord as-is."""
 
-
-def is_manager(member: discord.Member) -> bool:
-    return member.guild_permissions.administrator
 
 
 def _option_index(emoji: discord.PartialEmoji, n_options: int) -> int | None:

@@ -21,7 +21,7 @@ import os
 import shutil
 from pathlib import Path
 
-from conjoined import ConjoinedTournament
+from conjoined import ConjoinedTournament, VoteResults
 from models.deck import DECKS
 from models.stake import STAKES
 from models.tournament import Player, Team
@@ -49,9 +49,17 @@ def tournament_to_dict(t: ConjoinedTournament) -> dict:
         "teams": [
             {
                 "name": team.name,
+                "role_id": team.role_id,
                 "players": [{"uid": p.uid, "username": p.username} for p in team.players],
             }
             for team in t.teams
+        ],
+        "vote_results": [
+            {
+                "selection": [{"deck": d.name, "stake": s.name} for d, s in v.selection],
+                "votes": list(v.votes),
+            }
+            for v in t.vote_results
         ],
     }
 
@@ -67,6 +75,7 @@ def tournament_from_dict(data: dict) -> ConjoinedTournament:
         teams = []
         for td in data["teams"]:
             team = Team(td["name"])
+            team.role_id = td.get("role_id")  # missing in files saved before roles existed
             for pd in td["players"]:
                 team.add_player(Player(pd["uid"], pd["username"]))
             teams.append(team)
@@ -76,7 +85,16 @@ def tournament_from_dict(data: dict) -> ConjoinedTournament:
         t.cur_stage_idx = data["cur_stage_idx"]
         t.banned_decks = [decks[name] for name in data["banned_decks"]]
         t.banned_stakes = [stakes[name] for name in data["banned_stakes"]]
-    except (KeyError, TypeError) as e:
+
+        for vd in data.get("vote_results", []):  # missing in older files
+            selection = [(decks[c["deck"]], stakes[c["stake"]]) for c in vd["selection"]]
+            votes = [int(v) for v in vd["votes"]]
+            if len(votes) != len(selection):
+                raise StorageError("A saved vote has a different number of votes than options")
+            results = VoteResults(selection)
+            results.votes = votes
+            t.vote_results.append(results)
+    except (KeyError, TypeError, ValueError) as e:
         raise StorageError(f"Malformed tournament data: {e!r}") from e
     return t
 

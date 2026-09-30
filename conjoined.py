@@ -15,6 +15,7 @@ class ConjoinedTournament:
         self.started: bool = False
         self.stages: List[Stage] = []
         self.cur_stage_idx: int = 0
+        self.vote_results: List[VoteResults] = []
 
     def __str__(self, tabs=0):
         return "\t" * tabs + "ConjoinedTournament(\n\t" + ("\n" + "\t" * (tabs + 1)).join([
@@ -27,6 +28,18 @@ class ConjoinedTournament:
 
     def is_full(self) -> bool:
         return len(self.teams) == 16
+
+    def get_active_teams(self) -> List[Team]:
+        """Teams still in the tournament.
+
+        DUMMY: for now every registered team counts as active. Later this should
+        exclude eliminated teams (e.g. 2+ set losses in stage 1).
+        """
+        return list(self.teams)
+
+    def get_voting_role_ids(self) -> Set[int]:
+        """Discord role ids that grant voting rights (one per active team)."""
+        return {team.role_id for team in self.get_active_teams() if team.role_id is not None}
 
     def add_team(self, team: Team):
         if self.is_full():
