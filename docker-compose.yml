@@ -1,0 +1,17 @@
+# Run with:  docker compose up -d --build
+# Migrating to another machine: copy this folder (including .env and data/), then run the same command.
+services:
+  bot:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Inside the container the report web server must listen on all interfaces;
+      # where it's reachable from outside is set by the ports mapping below.
+      REPORT_BIND_HOST: 0.0.0.0
+      REPORT_PORT: "8080"
+    ports:
+      - "${REPORT_HTTP_BIND:-127.0.0.1}:${REPORT_HTTP_PORT:-8080}:8080"
+    volumes:
+      # Tournament data and uploaded logs (bot.py stores everything under ./data)
+      - ./data:/app/data
