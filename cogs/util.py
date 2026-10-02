@@ -10,6 +10,10 @@ The naming and lookup helpers live in emojis.py (shared with the vote messages).
 The bot needs the "Manage Expressions" permission (called "Manage Emojis and
 Stickers" in older Discord versions). Run the bot from the project folder, since
 the asset paths are relative (./assets/...).
+
+!util createvcs gives every team a private voice channel only its members can see
+(details and the permissions it needs in team_vcs.py). Safe to run again: existing
+channels are kept and their permissions reset.
 """
 import logging
 from pathlib import Path
@@ -20,6 +24,7 @@ from discord.ext import commands
 import dummies
 import registration as reg
 import team_roles
+import team_vcs
 from emojis import deck_emoji_name, stake_emoji_name
 from models.deck import DECKS
 from models.stake import STAKES
@@ -101,6 +106,47 @@ class Util(commands.Cog):
             lines.append(f":warning: {len(failed)} failed: " + ", ".join(failed)
                          + ". Fix the problem and run the command again; it only adds what's missing.")
         await ctx.send("\n".join(lines))
+
+    # -- team voice channels ----------------------------------------------------
+
+    @util.command(name="createvcs")
+    async def createvcs(self, ctx: commands.Context):
+        """Give every team a private voice channel only its members can see (resets existing ones)."""
+        teams = list(self.bot.store.get(ctx.guild.id).teams)
+        if not teams:
+            raise UtilError("There are no teams yet.")
+        no_role = [tm.name for tm in teams if tm.role_id is None or ctx.guild.get_role(tm.role_id) is None]
+
+        created, kept = [], []
+        async with ctx.typing():
+            for name in [tm.name for tm in teams if tm.name not in no_role]:
+                team = reg.find_team(self.bot.store.get(ctx.guild.id), name)
+                try:
+                    channel, is_new = await team_vcs.sync_team_vc(ctx.guild, team, ctx.guild.get_role(team.role_id))
+                except discord.Forbidden:
+                    raise UtilError(
+                        "I'm missing a permission. I need **Manage Channels** and **Manage Roles**, plus View "
+                        "Channel, Connect, Speak, Video, Send Messages and Read Message History (I can only "
+                        "hand out permissions I have). Grant them and run the command again; it only does "
+                        "what's missing." + (f"\nDone so far: {len(created)} created." if created else ""))
+                # Look the team up again: the store may have reloaded during the `await`
+                team = reg.find_team(self.bot.store.get(ctx.guild.id), name)
+                if team is not None and team.vc_id != channel.id:
+                    team.vc_id = channel.id
+                    self.bot.store.save(ctx.guild.id)
+                (created if is_new else kept).append(channel)
+
+        lines = []
+        if created:
+            lines.append(f"Created {len(created)} voice channel(s): " + " ".join(c.mention for c in created))
+        if kept:
+            lines.append(f"{len(kept)} already existed; their permissions are reset to team-only.")
+        if no_role:
+            lines.append(f":warning: Skipped {len(no_role)} team(s) without a Discord role: "
+                         + ", ".join(no_role) + ". Run `!team syncroles`, then this command again.")
+        lines.append("Only each team's members can see their channel. Members with Administrator (or Manage "
+                     "Channels/Roles) can always see every channel; Discord doesn't allow blocking them.")
+        await ctx.send("\n".join(lines)[:2000])
 
     # -- dummy teams (testing) --------------------------------------------------
 

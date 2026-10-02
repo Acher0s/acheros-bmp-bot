@@ -81,6 +81,7 @@ def tournament_to_dict(t: ConjoinedTournament) -> dict:
             {
                 "name": team.name,
                 "role_id": team.role_id,
+                "vc_id": team.vc_id,
                 "players": [{"uid": p.uid, "username": p.username} for p in team.players],
             }
             for team in t.teams
@@ -110,6 +111,7 @@ def tournament_from_dict(data: dict) -> ConjoinedTournament:
         for td in data["teams"]:
             team = Team(td["name"])
             team.role_id = td.get("role_id")  # missing in files saved before roles existed
+            team.vc_id = td.get("vc_id")  # missing in files saved before team voice channels existed
             for pd in td["players"]:
                 team.add_player(Player(pd["uid"], pd["username"]))
             teams.append(team)

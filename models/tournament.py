@@ -20,6 +20,7 @@ class Team:
         self.name = name
         self.players: List[Player] = []
         self.role_id: int | None = None  # Discord role shared by all members of the team
+        self.vc_id: int | None = None  # the team's private voice channel (see team_vcs.py)
 
     def __str__(self):
         return f"{self.name}(" + ", ".join([str(p) for p in self.players])
