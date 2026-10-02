@@ -1,14 +1,19 @@
 """!bala commands: control the Balatro multiplayer server during the tournament.
 
 Talks to the server's admin HTTP API (see the server repo's README, "Tournament Mode").
-The server keeps every lobby locked by default: hosts can't start games themselves,
-only these commands can.
+By default lobbies are locked (hosts can't start games, only `!bala start` can), every
+game uses the rolled seed, and the combo set with setcombo is forced. Each of those
+three can be switched off on its own.
 
   Managers only (Administrator permission):
-    !bala rollseed               roll a new hidden seed for every lobby's next game
+    !bala status                   show the three switches and the current combo (never the seed)
+    !bala manual_start on|off      on: hosts can start games. off: lobbies locked
+    !bala force_seed on|off        on: every game uses the rolled seed. off: random seed per game
+    !bala force_combo on|off       on: the setcombo deck/stake is forced. off: hosts choose
+    !bala rollseed                 roll a new hidden seed for every lobby's next game
     !bala setcombo <deck> <stake>  set the deck and stake for every lobby's next game
-    !bala listlobbies            list the lobbies and the players in them
-    !bala start                  start the game in every lobby that has two players
+    !bala listlobbies              list the lobbies and the players in them
+    !bala start                    start the game in every lobby that has two players
 
 Settings (.env):
   BALA_ADMIN_URL     where the server's admin API is reachable, e.g. https://bala-admin.example.com
@@ -55,6 +60,34 @@ def _game_stake_number(stake: Stake) -> int:
     if stake.name not in _STAKE_NUMBERS:
         raise MatchupError(f"I don't know the game's number for the **{stake.name}** stake.")
     return _STAKE_NUMBERS[stake.name]
+
+
+def _combo_text(guild: discord.Guild, back: str | None, stake: int | None) -> str:
+    """The server's loadout in the bot's own deck/stake terms, with emojis when both are known."""
+    deck_name = next((name for name, game in _MOD_DECK_NAMES.items() if game == back), None) \
+        or (back[:-len(" Deck")] if back and back.endswith(" Deck") else back)
+    stake_name = next((name for name, n in _STAKE_NUMBERS.items() if n == stake), None)
+    try:
+        return combo_label(guild, matchups.find_deck(deck_name), matchups.find_stake(stake_name))
+    except (MatchupError, TypeError, AttributeError):
+        return f"deck **{deck_name or 'host choice'}** / stake **{stake_name or stake or 'host choice'}**"
+
+
+def _switches_text(guild: discord.Guild, t: dict) -> str:
+    has_combo = t.get("back") is not None or t.get("stake") is not None
+    if not t.get("forceCombo"):
+        combo = "off (hosts pick their deck and stake)"
+    elif has_combo:
+        combo = f"on: {_combo_text(guild, t.get('back'), t.get('stake'))}"
+    else:
+        combo = "on, but no combo set yet (use `!bala setcombo`)"
+    return "\n".join([
+        "**Manual start:** " + ("on (hosts can start games)" if t.get("manualStart")
+                                else "off (lobbies locked, use `!bala start`)"),
+        "**Force seed:** " + ("on (every game uses the rolled seed)" if t.get("forceSeed")
+                              else "off (random seed every game)"),
+        f"**Force combo:** {combo}",
+    ])
 
 
 def _player(p: dict | None) -> str:
@@ -137,20 +170,52 @@ class Bala(commands.Cog):
         """Control the Balatro server."""
         await ctx.send_help(ctx.command)
 
+    @bala.command(name="status")
+    async def status(self, ctx: commands.Context):
+        """Show the three switches and the current combo. The seed stays hidden."""
+        t = (await self._call("status")).get("tourney", {})
+        await ctx.send(embed=discord.Embed(title="Balatro server settings", description=_switches_text(ctx.guild, t)))
+
+    async def _set_switch(self, ctx: commands.Context, key: str, enabled: bool):
+        t = (await self._call("settings", {key: enabled})).get("tourney", {})
+        await ctx.send(embed=discord.Embed(title="Balatro server settings", description=_switches_text(ctx.guild, t)))
+
+    @bala.command(name="manual_start", usage="<on|off>")
+    async def manual_start(self, ctx: commands.Context, enabled: bool):
+        """on: hosts can start games themselves. off: lobbies are locked, only !bala start starts them."""
+        await self._set_switch(ctx, "manual_start", enabled)
+
+    @bala.command(name="force_seed", usage="<on|off>")
+    async def force_seed(self, ctx: commands.Context, enabled: bool):
+        """on: every game uses the rolled seed until the next rollseed. off: a random seed every game."""
+        await self._set_switch(ctx, "force_seed", enabled)
+
+    @bala.command(name="force_combo", usage="<on|off>")
+    async def force_combo(self, ctx: commands.Context, enabled: bool):
+        """on: every game uses the setcombo deck and stake. off: hosts pick their own."""
+        await self._set_switch(ctx, "force_combo", enabled)
+
     @bala.command(name="rollseed")
     async def rollseed(self, ctx: commands.Context):
         """Roll a new seed for every lobby's next game. The seed stays hidden."""
-        await self._call("reroll", {})
+        data = await self._call("reroll", {})
         # The reply contains the seed: deliberately not shown or logged
-        await ctx.send("Rolled a new seed. Every lobby gets it for the next game it starts; "
-                       "games already running keep theirs.")
+        msg = ("Rolled a new seed. Every lobby gets it for the next game it starts, and keeps it for every "
+               "game after that until the next roll. Games already running keep theirs.")
+        if not data.get("tourney", {}).get("forceSeed"):
+            msg += "\n:warning: **Force seed is off**, so games use random seeds. `!bala force_seed on` to use this one."
+        await ctx.send(msg)
 
     @bala.command(name="setcombo", usage="<deck> <stake>")
     async def setcombo(self, ctx: commands.Context, deck: str, stake: str):
         """Set the deck and stake for every lobby's next game."""
         d, s = matchups.find_deck(deck), matchups.find_stake(stake)
-        await self._call("loadout", {"back": _game_deck_name(d), "stake": _game_stake_number(s)})
-        await ctx.send(f"Next games will use {combo_label(ctx.guild, d, s)} in every lobby.")
+        data = await self._call("loadout", {"back": _game_deck_name(d), "stake": _game_stake_number(s)})
+        msg = f"Next games will use {combo_label(ctx.guild, d, s)} in every lobby."
+        if not data.get("tourney", {}).get("forceCombo"):
+            msg = (f"Saved {combo_label(ctx.guild, d, s)}.\n:warning: **Force combo is off**, so hosts still pick "
+                   "their own. `!bala force_combo on` to use this one.")
+        await ctx.send(msg)
 
     @bala.command(name="listlobbies")
     async def listlobbies(self, ctx: commands.Context):
@@ -196,6 +261,7 @@ class Bala(commands.Cog):
         elif isinstance(error, commands.NoPrivateMessage):
             await ctx.send("Balatro server commands only work inside a server.")
         elif isinstance(error, (commands.BadArgument, commands.MissingRequiredArgument)):
+            # also covers on/off typos (BadBoolArgument is a BadArgument)
             await ctx.send(f"I couldn't read that. Usage: `!{ctx.command.qualified_name} {ctx.command.signature}`")
         else:
             log.error("Unexpected error in %s", ctx.command, exc_info=error)
