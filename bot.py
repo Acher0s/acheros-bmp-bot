@@ -6,6 +6,7 @@ import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 
+from help_command import TourneyHelp
 from persistence import TournamentStore
 
 load_dotenv()
@@ -27,6 +28,7 @@ class TournamentBot(commands.Bot):
             intents=intents,
             # Let <@id> mentions display as names without actually pinging anyone.
             allowed_mentions=discord.AllowedMentions.none(),
+            help_command=TourneyHelp(),
         )
         # Saved tournaments live in ./data next to this file (one JSON file per server).
         self.store = TournamentStore(Path(__file__).parent / "data")
