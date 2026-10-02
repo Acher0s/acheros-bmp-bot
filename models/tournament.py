@@ -1,6 +1,6 @@
 import random
 from enum import Enum
-from typing import List, Tuple, Dict, Set
+from typing import Callable, List, Tuple, Dict, Set
 
 from models.deck import Deck
 from models.stake import Stake
@@ -60,6 +60,8 @@ class Match:
         self.stake: Stake = stake
         self.state: GameState = GameState.INIT
         self.result: GameResult | None = None
+        self.report = None  # reports.MatchReport once someone types !report
+        self.history: List[dict] = []  # every result change: {"at", "by", "action", "result"}
 
     def report_result(self, res: GameResult):
         self.result = res
@@ -67,11 +69,14 @@ class Match:
 
 
 class TourneySet:
-    def __init__(self, team1, team2, best_of):
+    def __init__(self, team1, team2, best_of, set_id=None):
+        self.set_id: int | None = set_id  # unique across the whole tournament, shown as #ID
         self.best_of: int = best_of
         self.team1: Team = team1
         self.team2: Team = team2
         self.matches: List[Match] = []
+        self.channel_id: int | None = None  # private Discord channel for this set
+        self.channel_archived: bool = False
 
     def __str__(self, tabs=0):
         t1_score, t2_score = self.get_standings()
@@ -102,12 +107,14 @@ class TourneySet:
             return self.team2
         return self.team1
 
-    def add_match(self, match: Match):
+    def add_match(self, deck: Deck, stake: Stake) -> Match | None:
         if self.get_winner() is not None:
             print("set already completed")
-            return
+            return None
 
+        match = Match(self.team1, self.team2, deck, stake)
         self.matches.append(match)
+        return match
 
 
 class Round:
@@ -151,7 +158,7 @@ class Round:
 
     def add_match_all(self, deck: Deck, stake: Stake):
         for m in self.matchups:
-            m.add_match(Match(m.team1, m.team2, deck, stake))
+            m.add_match(deck, stake)
 
 
 
@@ -259,45 +266,61 @@ def count_rematches(pairing: List[Tuple[Team, Team]], played_history: Dict[Team,
     return repeats
 
 
-def match_bracket_group(teams: List[Team], played_history: Dict[Team, Set[Team]]) -> List[Tuple[Team, Team]]:
+def match_bracket_group(teams: List[Team], played_history: Dict[Team, Set[Team]],
+                        is_real: Callable[[Team], bool] | None = None) -> List[Tuple[Team, Team]]:
     """
-    Pairs a pool of teams, prioritizing zero rematches.
+    Pairs a pool of teams randomly, prioritizing zero rematches.
     Uses randomized backtracking for speed.
+
+    With `is_real` (only passed while testing with dummy teams), pairing a real team
+    with a dummy one costs more than any number of rematches, so real teams play
+    each other whenever the pool allows it.
     """
     shuffled_teams = teams.copy()
     random.shuffle(shuffled_teams)
 
+    mixed_cost = len(teams)  # more than the most rematches a pairing can have
+    real = {t for t in teams if is_real(t)} if is_real is not None else set()
+    # Best possible: no rematches, and only one mixed pair if the real teams are odd in number
+    lower_bound = mixed_cost * (len(real) % 2) if is_real is not None else 0
+
     best_pairing = []
-    min_rematches = float('inf')
+    min_cost = float('inf')
+
+    def cost(a: Team, b: Team) -> int:
+        c = 1 if b in played_history.get(a, set()) else 0
+        if is_real is not None and (a in real) != (b in real):
+            c += mixed_cost
+        return c
 
     def backtrack(remaining: List[Team], current_pairing: List[Tuple[Team, Team]], current_cost: int):
-        nonlocal best_pairing, min_rematches
+        nonlocal best_pairing, min_cost
 
         # Prune if this branch is already worse than our best solution
-        if current_cost >= min_rematches:
+        if current_cost >= min_cost:
             return
 
         if not remaining:
-            if current_cost < min_rematches:
-                min_rematches = current_cost
+            if current_cost < min_cost:
+                min_cost = current_cost
                 best_pairing = list(current_pairing)
             return
 
         first = remaining[0]
         rest = remaining[1:]
 
-        # Randomize choice of opponents to keep tournament random
+        # Randomize choice of opponents to keep tournament random, cheapest first so
+        # a perfect pairing is usually found on the first try
         candidates = list(rest)
         random.shuffle(candidates)
+        candidates.sort(key=lambda opponent: cost(first, opponent))
 
         for opponent in candidates:
-            is_repeat = 1 if opponent in played_history.get(first, set()) else 0
-
             next_remaining = [t for t in rest if t != opponent]
-            backtrack(next_remaining, current_pairing + [(first, opponent)], current_cost + is_repeat)
+            backtrack(next_remaining, current_pairing + [(first, opponent)], current_cost + cost(first, opponent))
 
-            # Optimization: If we found a zero-rematch pairing, stop immediately
-            if min_rematches == 0:
+            # Optimization: stop as soon as nothing better is possible
+            if min_cost <= lower_bound:
                 return
 
     backtrack(shuffled_teams, [], 0)

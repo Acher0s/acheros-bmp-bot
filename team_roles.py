@@ -13,6 +13,7 @@ from typing import Iterable
 
 import discord
 
+from dummies import is_dummy_uid
 from models.tournament import Player, Team
 
 log = logging.getLogger(__name__)
@@ -31,6 +32,8 @@ def role_name(team: Team) -> str:
 
 
 async def _member(guild: discord.Guild, uid: str) -> discord.Member | None:
+    if is_dummy_uid(uid):
+        return None  # fake test player: no Discord account to give a role to
     member = guild.get_member(int(uid))
     if member is not None:
         return member

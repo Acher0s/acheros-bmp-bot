@@ -12,17 +12,19 @@ Stickers" in older Discord versions). Run the bot from the project folder, since
 the asset paths are relative (./assets/...).
 """
 import logging
-import random
 from pathlib import Path
 
 import discord
 from discord.ext import commands
 
-from bot import is_manager
+import dummies
+import registration as reg
+import team_roles
 from emojis import deck_emoji_name, stake_emoji_name
 from models.deck import DECKS
 from models.stake import STAKES
 from persistence import StorageError
+from bot import is_manager
 
 log = logging.getLogger(__name__)
 
@@ -100,22 +102,51 @@ class Util(commands.Cog):
                          + ". Fix the problem and run the command again; it only adds what's missing.")
         await ctx.send("\n".join(lines))
 
-    @util.command(name="fakevotes", usage="[N]")
-    async def fakevotes(self, ctx: commands.Context, n: int = 32):
-        """DEV: cast N random votes from fake voters on the running poll."""
-        sel = self.bot.get_cog("Selection")
-        vote = sel.active.get(ctx.guild.id) if sel else None
-        if vote is None:
-            raise UtilError("There's no vote running.")
-        fakes = sum(1 for uid in vote.ballots if uid < 0)  # fake voters have negative ids
-        for i in range(1, n + 1):
-            vote.ballots[-(fakes + i)] = random.randrange(len(vote.selection))
-        await ctx.send(f"Cast {n} fake vote(s).")
+    # -- dummy teams (testing) --------------------------------------------------
+
+    @util.command(name="filldummy", usage="[N]")
+    async def filldummy(self, ctx: commands.Context, n: int | None = None):
+        """DEV: register dummy teams (fake players) until there are 16 teams, or add N of them.
+        Real teams you registered yourself are kept. Each dummy team gets a Discord role."""
+        t = self.bot.store.get(ctx.guild.id)
+        created = dummies.fill_dummy_teams(t, n)
+        self.bot.store.save(ctx.guild.id)  # check -> change -> save, no `await` in between
+
+        warning = ""
+        before = [tm.role_id for tm in created]
+        try:
+            for team in created:
+                await team_roles.sync_team(ctx.guild, team)
+        except discord.HTTPException as e:
+            log.warning("Couldn't create roles for dummy teams: %r", e)
+            warning = "\n:warning: The teams are registered, but I couldn't create their roles (I need **Manage Roles**). Run `!team syncroles` once that's fixed."
+        finally:
+            if [tm.role_id for tm in created] != before:
+                self.bot.store.save(ctx.guild.id)
+        await ctx.send(f"Added {len(created)} dummy team(s): {', '.join(tm.name for tm in created)}. "
+                       f"{len(t.teams)}/{dummies.MAX_TEAMS} teams registered." + warning)
+
+    @util.command(name="cleardummies")
+    async def cleardummies(self, ctx: commands.Context):
+        """DEV: remove all dummy teams and their roles (only before the tournament starts)."""
+        t = self.bot.store.get(ctx.guild.id)
+        removed = dummies.clear_dummy_teams(t)
+        self.bot.store.save(ctx.guild.id)
+
+        warning = ""
+        try:
+            for team in removed:
+                await team_roles.delete_role(ctx.guild, team.role_id)
+        except discord.HTTPException as e:
+            log.warning("Couldn't delete some dummy team roles: %r", e)
+            warning = "\n:warning: I couldn't delete all their roles (I need **Manage Roles**). Please delete the leftover `Team: Dummy ...` roles by hand."
+        await ctx.send(f"Removed {len(removed)} dummy team(s). {len(t.teams)} team(s) left." + warning)
+
     # -- errors ---------------------------------------------------------------
 
     async def cog_command_error(self, ctx: commands.Context, error: Exception):
         error = getattr(error, "original", error)
-        if isinstance(error, UtilError):
+        if isinstance(error, (UtilError, reg.RegistrationError)):
             await ctx.send(str(error))
         elif isinstance(error, commands.MissingPermissions):
             await ctx.send("Only administrators can use util commands.")

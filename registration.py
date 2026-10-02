@@ -71,9 +71,7 @@ def create_team(t: ConjoinedTournament, name: str, players: Iterable[Player]) ->
     if t.is_full():
         raise RegistrationError("The tournament is full.")
 
-    players = _dedupe(players)
-    if not players:
-        raise RegistrationError("A team needs at least one player.")
+    players = _dedupe(players)  # may be empty: players can be added later with !team add
     _check_size(len(players))
     for p in players:
         other = team_of(t, p.uid)

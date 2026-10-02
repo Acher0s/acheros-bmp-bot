@@ -35,6 +35,8 @@ class TournamentBot(commands.Bot):
         await self.load_extension("cogs.teams")
         await self.load_extension("cogs.selection")
         await self.load_extension("cogs.util")
+        await self.load_extension("cogs.conjoined_cog")
+        await self.load_extension("cogs.report_cog")
 
 
 bot = TournamentBot()

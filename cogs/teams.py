@@ -21,7 +21,7 @@ def is_organizer(member: discord.Member) -> bool:
 
 def format_team(team: Team) -> str:
     name = discord.utils.escape_markdown(team.name)
-    members = " ".join(f"<@{p.uid}>" for p in team.players)
+    members = " ".join(f"<@{p.uid}>" for p in team.players) or "no players yet"
     return f"**{name}** ({members})"
 
 
@@ -93,12 +93,13 @@ class Teams(commands.Cog):
 
     @team.command(name="create", usage='"<team name>" [@player ...]')
     async def team_create(self, ctx: commands.Context, name: str, *members: discord.Member):
-        """Create a team. With no @mentions, you're the only member.
-        If you list players, that's the whole roster (you must be in it unless you're an organizer)."""
-        roster = list(members) or [ctx.author]
+        """Create a team with exactly the players you @mention (none: an empty team).
+        You're never added automatically. Non-organizers must mention themselves."""
+        roster = list(members)
         self._reject_bots(roster)
         if ctx.author not in roster and not is_organizer(ctx.author):
-            raise reg.RegistrationError("You can only create a team that includes yourself.")
+            raise reg.RegistrationError("You can only create a team that includes yourself: mention yourself too, "
+                                        f'e.g. `!team create "{name}" {ctx.author.mention}`.')
 
         t = self._tournament(ctx)
         team = reg.create_team(t, name, [to_player(m) for m in roster])
