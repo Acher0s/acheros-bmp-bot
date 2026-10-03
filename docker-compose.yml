@@ -10,8 +10,12 @@ services:
       # where it's reachable from outside is set by the ports mapping below.
       REPORT_BIND_HOST: 0.0.0.0
       REPORT_PORT: "8080"
+      OVERLAY_BIND_HOST: 0.0.0.0
+      OVERLAY_PORT: "8081"
     ports:
       - "${REPORT_HTTP_BIND:-127.0.0.1}:${REPORT_HTTP_PORT:-8080}:8080"
+      # OBS overlays (browser sources), for the producer's OBS or the reverse proxy
+      - "${OVERLAY_HTTP_BIND:-127.0.0.1}:${OVERLAY_HTTP_PORT:-8081}:8081"
     volumes:
       # Tournament data and uploaded logs (bot.py stores everything under ./data)
       - ./data:/app/data

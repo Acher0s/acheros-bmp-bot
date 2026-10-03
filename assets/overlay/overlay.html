@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Conjoined overlay text</title>
+<style>
+  @font-face { font-family: "m6x11"; src: url("/overlay/m6x11.ttf") format("truetype"); }
+  html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; }
+  #text {
+    font-family: "m6x11", monospace;
+    -webkit-font-smoothing: none;
+    font-size: 72px;
+    line-height: 1.1;
+    color: #000;
+    white-space: nowrap;
+    overflow: hidden;
+    width: 100vw;
+  }
+</style>
+</head>
+<body>
+<div id="text"></div>
+<script>
+(() => {
+  // /overlay/slot/<slot>/<field> (team, p1, p2, standing) or /overlay/round
+  const parts = location.pathname.split("/").filter(Boolean);
+  const slot = parts[1] === "slot" ? parts[2] : null;
+  const field = parts[1] === "slot" ? parts[3] : "round";
+  const params = new URLSearchParams(location.search);
+  const el = document.getElementById("text");
+  if (params.get("size")) el.style.fontSize = parseInt(params.get("size"), 10) + "px";
+  if (params.get("align")) el.style.textAlign = params.get("align");
+  if (params.get("color")) el.style.color = "#" + params.get("color").replace("#", "");
+  const base = parseFloat(getComputedStyle(el).fontSize);
+
+  // Shrink long text until it fits the source's width
+  function fit() {
+    let size = base;
+    el.style.fontSize = size + "px";
+    while (el.scrollWidth > el.clientWidth && size > 12) {
+      size -= 4;
+      el.style.fontSize = size + "px";
+    }
+  }
+
+  async function tick() {
+    try {
+      const key = params.get("key") || "";
+      const resp = await fetch("/overlay/state.json?key=" + encodeURIComponent(key), { cache: "no-store" });
+      if (resp.ok) {
+        const state = await resp.json();
+        let value = "";
+        if (field === "round") value = state.round ? state.round.label : "";
+        else if (state.slots[slot]) value = state.slots[slot][field] || "";
+        if (el.textContent !== value) { el.textContent = value; fit(); }
+      }
+    } catch (e) { /* bot restarting: keep the last text */ }
+    setTimeout(tick, 2000);
+  }
+  document.fonts.load('72px "m6x11"').finally(tick);
+})();
+</script>
+</body>
+</html>
