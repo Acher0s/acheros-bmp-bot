@@ -22,13 +22,14 @@ Settings (.env):
 import asyncio
 import logging
 import os
+import time
 
 import aiohttp
 import discord
 from discord.ext import commands
 
 import matchups
-from bot import is_manager
+import checks
 from emojis import combo_label
 from matchups import MatchupError
 from models.deck import Deck
@@ -127,11 +128,7 @@ class Bala(commands.Cog):
             await self.session.close()
 
     async def cog_check(self, ctx: commands.Context) -> bool:
-        if ctx.guild is None:
-            raise commands.NoPrivateMessage()
-        if not is_manager(ctx.author):
-            raise commands.MissingPermissions(["administrator"])
-        return True
+        return checks.require_manager(ctx)
 
     async def _call(self, command: str, body: dict | None = None) -> dict:
         """Run an admin command on the server. GET without a body, POST with one."""
@@ -239,6 +236,9 @@ class Bala(commands.Cog):
         """Start the game in every lobby that has two players and isn't already playing."""
         data = await self._call("start", {"all": True})
         started, skipped = data.get("started", []), data.get("skipped", [])
+        if started:
+            # Signal for other cogs: the current match of every set in progress starts now
+            self.bot.dispatch("bala_started", ctx.guild, time.time())
         lines = []
         if started:
             lines.append(f"Started {len(started)} lobb{'y' if len(started) == 1 else 'ies'}: "
@@ -253,13 +253,11 @@ class Bala(commands.Cog):
     # -- errors ---------------------------------------------------------------
 
     async def cog_command_error(self, ctx: commands.Context, error: Exception):
+        if checks.is_silent(error):
+            return
         error = getattr(error, "original", error)
         if isinstance(error, (BalaServerError, MatchupError)):
             await ctx.send(str(error))
-        elif isinstance(error, commands.MissingPermissions):
-            await ctx.send("Only administrators can use that command.")
-        elif isinstance(error, commands.NoPrivateMessage):
-            await ctx.send("Balatro server commands only work inside a server.")
         elif isinstance(error, (commands.BadArgument, commands.MissingRequiredArgument)):
             # also covers on/off typos (BadBoolArgument is a BadArgument)
             await ctx.send(f"I couldn't read that. Usage: `!{ctx.command.qualified_name} {ctx.command.signature}`")

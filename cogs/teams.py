@@ -3,6 +3,7 @@ import logging
 import discord
 from discord.ext import commands
 
+import checks
 import registration as reg
 import team_roles
 from models.tournament import Player, Team
@@ -15,10 +16,6 @@ def to_player(user: discord.User | discord.Member) -> Player:
     return Player(str(user.id), user.name)
 
 
-def is_organizer(member: discord.Member) -> bool:
-    return member.guild_permissions.manage_guild
-
-
 def format_team(team: Team) -> str:
     name = discord.utils.escape_markdown(team.name)
     members = " ".join(f"<@{p.uid}>" for p in team.players) or "no players yet"
@@ -26,15 +23,13 @@ def format_team(team: Team) -> str:
 
 
 class Teams(commands.Cog):
-    """Team registration. Every change is saved to disk before the bot replies."""
+    """Team registration. Managers (Administrator permission) only. Every change is saved to disk before the bot replies."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
     async def cog_check(self, ctx: commands.Context) -> bool:
-        if ctx.guild is None:
-            raise commands.NoPrivateMessage()
-        return True
+        return checks.require_manager(ctx)
 
     # -- helpers --------------------------------------------------------------
     # Rule: check -> change -> save with no `await` in between, so two commands
@@ -45,13 +40,6 @@ class Teams(commands.Cog):
 
     def _save(self, ctx: commands.Context) -> None:
         self.bot.store.save(ctx.guild.id)
-
-    def _require_manager(self, ctx: commands.Context) -> None:
-        if is_organizer(ctx.author):
-            return
-        raise reg.RegistrationError(
-            f"Only organizers can do that."
-        )
 
     @staticmethod
     def _reject_bots(users) -> None:
@@ -93,13 +81,9 @@ class Teams(commands.Cog):
 
     @team.command(name="create", usage='"<team name>" [@player ...]')
     async def team_create(self, ctx: commands.Context, name: str, *members: discord.Member):
-        """Create a team with exactly the players you @mention (none: an empty team).
-        You're never added automatically. Non-organizers must mention themselves."""
+        """Create a team with exactly the players you @mention (none: an empty team)."""
         roster = list(members)
         self._reject_bots(roster)
-        if ctx.author not in roster and not is_organizer(ctx.author):
-            raise reg.RegistrationError("You can only create a team that includes yourself: mention yourself too, "
-                                        f'e.g. `!team create "{name}" {ctx.author.mention}`.')
 
         t = self._tournament(ctx)
         team = reg.create_team(t, name, [to_player(m) for m in roster])
@@ -109,14 +93,13 @@ class Teams(commands.Cog):
 
     @team.command(name="add", usage='"<team name>" @player [@player ...]')
     async def team_add(self, ctx: commands.Context, team_name: str, *members: discord.Member):
-        """Add players to a team (team members and organizers only)."""
+        """Add players to a team."""
         if not members:
             raise reg.RegistrationError("Mention at least one player to add.")
         self._reject_bots(members)
 
         t = self._tournament(ctx)
         team = reg.require_team(t, team_name)
-        self._require_manager(ctx)
         reg.add_players(t, team, [to_player(m) for m in members])
         self._save(ctx)
         warn = await self._sync_roles(ctx, team)
@@ -124,14 +107,12 @@ class Teams(commands.Cog):
 
     @team.command(name="remove", usage='"<team name>" @player [@player ...]')
     async def team_remove(self, ctx: commands.Context, team_name: str, *users: discord.User):
-        """Remove players from a team (team members and organizers only).
-        A team with no players left is disbanded."""
+        """Remove players from a team. A team with no players left is disbanded."""
         if not users:
             raise reg.RegistrationError("Mention at least one player to remove.")
 
         t = self._tournament(ctx)
         team = reg.require_team(t, team_name)
-        self._require_manager(ctx)
         removed = [to_player(u) for u in users]
         role_id = team.role_id
         disbanded = reg.remove_players(t, team, removed)
@@ -145,10 +126,9 @@ class Teams(commands.Cog):
 
     @team.command(name="disband")
     async def team_disband(self, ctx: commands.Context, *, team_name: str):
-        """Disband a team (team members and organizers only)."""
+        """Disband a team."""
         t = self._tournament(ctx)
         team = reg.require_team(t, team_name)
-        self._require_manager(ctx)
         role_id = team.role_id
         reg.disband_team(t, team)
         self._save(ctx)
@@ -157,9 +137,8 @@ class Teams(commands.Cog):
 
     @team.command(name="syncroles")
     async def team_syncroles(self, ctx: commands.Context):
-        """Create/repair the role of every team and hand it to all members (organizers only).
+        """Create/repair the role of every team and hand it to all members.
         Run this once for teams registered before roles existed."""
-        self._require_manager(ctx)
         teams = list(self._tournament(ctx).teams)
         before = [tm.role_id for tm in teams]
         try:
@@ -185,14 +164,14 @@ class Teams(commands.Cog):
     # -- errors ---------------------------------------------------------------
 
     async def cog_command_error(self, ctx: commands.Context, error: Exception):
+        if checks.is_silent(error):
+            return
         error = getattr(error, "original", error)
         if isinstance(error, reg.RegistrationError):
             await ctx.send(str(error))
         elif isinstance(error, (StorageError, OSError)):
             log.error("Storage problem while running %s", ctx.command, exc_info=error)
             await ctx.send("Couldn't load or save the tournament data, so nothing was changed. Check the bot's log.")
-        elif isinstance(error, commands.NoPrivateMessage):
-            await ctx.send("Team commands only work inside a server.")
         elif isinstance(error, discord.Forbidden):
             log.warning("Missing permission while running %s: %r", ctx.command, error)
             await ctx.send("I'm missing a Discord permission (I need **Manage Roles**).")

@@ -29,7 +29,7 @@ from emojis import deck_emoji_name, stake_emoji_name
 from models.deck import DECKS
 from models.stake import STAKES
 from persistence import StorageError
-from bot import is_manager
+import checks
 
 log = logging.getLogger(__name__)
 
@@ -47,11 +47,7 @@ class Util(commands.Cog):
         self.bot = bot
 
     async def cog_check(self, ctx: commands.Context) -> bool:
-        if ctx.guild is None:
-            raise commands.NoPrivateMessage()
-        if not is_manager(ctx.author):
-            raise commands.MissingPermissions(["administrator"])
-        return True
+        return checks.require_manager(ctx)
 
     @commands.group(name="util", invoke_without_command=True)
     async def util(self, ctx: commands.Context):
@@ -191,13 +187,11 @@ class Util(commands.Cog):
     # -- errors ---------------------------------------------------------------
 
     async def cog_command_error(self, ctx: commands.Context, error: Exception):
+        if checks.is_silent(error):
+            return
         error = getattr(error, "original", error)
         if isinstance(error, (UtilError, reg.RegistrationError)):
             await ctx.send(str(error))
-        elif isinstance(error, commands.MissingPermissions):
-            await ctx.send("Only administrators can use util commands.")
-        elif isinstance(error, commands.NoPrivateMessage):
-            await ctx.send("Util commands only work inside a server.")
         elif isinstance(error, discord.Forbidden):
             log.warning("Missing permission while running %s: %r", ctx.command, error)
             await ctx.send("I'm missing the **Manage Expressions** permission (Manage Emojis and Stickers). "

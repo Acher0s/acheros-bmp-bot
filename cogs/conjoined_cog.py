@@ -29,17 +29,12 @@ import reports
 from emojis import combo_label
 from matchups import MatchupError
 from persistence import StorageError
-from bot import is_manager
+import checks
 
 log = logging.getLogger(__name__)
 
 
-def manager_only():
-    async def predicate(ctx: commands.Context) -> bool:
-        if not is_manager(ctx.author):
-            raise commands.MissingPermissions(["administrator"])
-        return True
-    return commands.check(predicate)
+manager_only = checks.manager_only
 
 
 def _ids(sets) -> str:
@@ -74,7 +69,9 @@ class Conjoined(commands.Cog):
     @commands.group(name="conjoined", invoke_without_command=True)
     async def conjoined(self, ctx: commands.Context):
         """Run the tournament."""
-        await ctx.send_help(ctx.command)
+        # The group stays open so everyone can use standings/roundstats, but its help is managers-only
+        if checks.is_manager(ctx.author):
+            await ctx.send_help(ctx.command)
 
     @conjoined.command(name="init")
     @manager_only()
@@ -133,6 +130,8 @@ class Conjoined(commands.Cog):
                     failed.append(set_id)
                 else:
                     started.append(set_id)
+                    # Signal for other cogs (e.g. the stream cog assigns the set's slots)
+                    self.bot.dispatch("set_started", ctx.guild, set_id)
 
         t = self._tournament(ctx)
         lines = []
@@ -249,13 +248,11 @@ class Conjoined(commands.Cog):
     # -- errors ---------------------------------------------------------------
 
     async def cog_command_error(self, ctx: commands.Context, error: Exception):
+        if checks.is_silent(error):
+            return
         error = getattr(error, "original", error)
         if isinstance(error, MatchupError):
             await ctx.send(str(error))
-        elif isinstance(error, commands.MissingPermissions):
-            await ctx.send("Only administrators can use that command.")
-        elif isinstance(error, commands.NoPrivateMessage):
-            await ctx.send("Tournament commands only work inside a server.")
         elif isinstance(error, (StorageError, OSError)):
             log.error("Storage problem while running %s", ctx.command, exc_info=error)
             await ctx.send("Couldn't load or save the tournament data, so nothing was changed. Check the bot's log.")

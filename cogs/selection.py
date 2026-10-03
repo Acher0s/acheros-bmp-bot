@@ -30,6 +30,7 @@ from dataclasses import dataclass, field
 import discord
 from discord.ext import commands
 
+import checks
 from conjoined import VoteResults
 from emojis import combo_label
 from models.deck import Deck
@@ -47,10 +48,6 @@ DEFAULT_OPTIONS = 9
 
 class SelectionError(Exception):
     """A rule violation. The message is shown to the user in Discord as-is."""
-
-
-def is_manager(member: discord.Member) -> bool:
-    return member.guild_permissions.administrator
 
 
 def _option_index(emoji: discord.PartialEmoji, n_options: int) -> int | None:
@@ -90,7 +87,6 @@ class ActiveVote:
     selection: list[tuple[Deck, Stake]]
     message: discord.Message | None = None  # set once the vote message is posted
     ballots: dict[int, int] = field(default_factory=dict)  # user id -> option index
-    warned: set[int] = field(default_factory=set)  # users already told they can't vote
 
 
 class Selection(commands.Cog):
@@ -101,11 +97,7 @@ class Selection(commands.Cog):
         self.active: dict[int, ActiveVote] = {}  # guild id -> vote in progress
 
     async def cog_check(self, ctx: commands.Context) -> bool:
-        if ctx.guild is None:
-            raise commands.NoPrivateMessage()
-        if not is_manager(ctx.author):
-            raise commands.MissingPermissions(["administrator"])
-        return True
+        return checks.require_manager(ctx)
 
     # -- commands -------------------------------------------------------------
 
@@ -285,13 +277,8 @@ class Selection(commands.Cog):
         t = self.bot.store.get(payload.guild_id)
         member = payload.member
         if member is None or not _has_voting_role(t, member.roles):
+            # Not allowed to vote: take the reaction away, silently
             await self._remove_reaction(vote, payload.emoji, payload.user_id)
-            if payload.user_id not in vote.warned:  # tell them once, not on every click
-                vote.warned.add(payload.user_id)
-                await vote.message.channel.send(
-                    f"<@{payload.user_id}> only members of teams still in the tournament can vote.",
-                    delete_after=10,
-                )
             return
 
         # Eligible. One vote per player: record the new choice first, then remove the
@@ -313,13 +300,11 @@ class Selection(commands.Cog):
     # -- errors ---------------------------------------------------------------
 
     async def cog_command_error(self, ctx: commands.Context, error: Exception):
+        if checks.is_silent(error):
+            return
         error = getattr(error, "original", error)
         if isinstance(error, SelectionError):
             await ctx.send(str(error))
-        elif isinstance(error, commands.MissingPermissions):
-            await ctx.send("Only administrators can use selection commands.")
-        elif isinstance(error, commands.NoPrivateMessage):
-            await ctx.send("Selection commands only work inside a server.")
         elif isinstance(error, (StorageError, OSError)):
             log.error("Storage problem while running %s", ctx.command, exc_info=error)
             await ctx.send("Couldn't load or save the tournament data, so nothing was recorded. Check the bot's log.")

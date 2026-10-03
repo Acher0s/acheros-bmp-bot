@@ -1,29 +1,22 @@
-"""!help: list every cog and all of its commands, subcommands included.
+"""!help: list every cog and all of its commands, subcommands included. Managers only.
 
-The built-in help only lists top-level groups (e.g. "bala") and hides commands the
-reader can't run. This overview shows everything, marking commands the reader
-isn't allowed to use with a lock. `!help <command>` still shows the details.
+The built-in help only lists top-level groups (e.g. "bala"). This overview shows every
+subcommand with its usage and summary. `!help <command>` still shows the details.
+Like every other manager command, it's ignored silently for anyone else.
 """
 import discord
 from discord.ext import commands
 
-LOCK = "\N{LOCK}"
+import checks
+
 FIELD_LIMIT = 1024
 EMBED_LIMIT = 5500  # stay under Discord's 6000-character total per embed
 
 
-async def _can_run(command: commands.Command, ctx: commands.Context) -> bool:
-    try:
-        return await command.can_run(ctx)
-    except commands.CommandError:
-        return False
-
-
-def _line(command: commands.Command, prefix: str, allowed: bool) -> str:
+def _line(command: commands.Command, prefix: str) -> str:
     usage = f" {command.signature}" if command.signature else ""
-    lock = "" if allowed else f" {LOCK}"
     doc = f" - {command.short_doc}" if command.short_doc else ""
-    return f"`{prefix}{command.qualified_name}{usage}`{lock}{doc}"
+    return f"`{prefix}{command.qualified_name}{usage}`{doc}"
 
 
 def _chunks(lines: list[str], limit: int) -> list[str]:
@@ -43,16 +36,12 @@ def _chunks(lines: list[str], limit: int) -> list[str]:
 
 class TourneyHelp(commands.DefaultHelpCommand):
     def __init__(self):
-        # Show every command in `!help <command>` too, not just the ones the reader can run
-        super().__init__(verify_checks=False)
+        super().__init__(verify_checks=False, command_attrs={"checks": [checks.manager_predicate]})
 
     async def send_bot_help(self, mapping):
-        ctx = self.context
-        prefix = ctx.clean_prefix
-        embeds = [discord.Embed(
-            title="Commands",
-            description=f"{LOCK} = you can't use this one. `{prefix}help <command>` shows more about a command.",
-        )]
+        prefix = self.context.clean_prefix
+        embeds = [discord.Embed(title="Commands",
+                                description=f"`{prefix}help <command>` shows more about a command.")]
 
         def add_field(name: str, value: str) -> None:
             if len(embeds[-1]) + len(name) + len(value) > EMBED_LIMIT or len(embeds[-1].fields) >= 25:
@@ -70,7 +59,7 @@ class TourneyHelp(commands.DefaultHelpCommand):
                                      key=lambda c: c.qualified_name) \
                     if isinstance(command, commands.Group) else []
                 for c in subcommands or [command]:
-                    lines.append(_line(c, prefix, await _can_run(c, ctx)))
+                    lines.append(_line(c, prefix))
             if not lines:
                 continue
             name = cog.qualified_name if cog else "Other"

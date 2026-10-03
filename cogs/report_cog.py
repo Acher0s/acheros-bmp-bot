@@ -39,8 +39,9 @@ from pathlib import Path
 import discord
 from discord.ext import commands, tasks
 
+import checks
 import reports
-from bot import is_manager
+from checks import is_manager
 from dummies import is_dummy_team
 from emojis import combo_label
 from models.tournament import GameState, TourneySet
@@ -310,9 +311,8 @@ class Report(commands.Cog):
         if m.state == GameState.FINISHED:
             return await reply_private("This match already has a result.")
         slots = _voter_slots(interaction.user, s)
-        if not slots:
-            return await reply_private("Only the two teams of this set can pick the winner. "
-                                       "Managers decide matches with `!report manual`.")
+        if not slots:  # not on either team: not allowed to vote, so nothing happens
+            return await checks.ignore_click(interaction)
 
         now = time.time()
         for slot in slots:
@@ -350,23 +350,17 @@ class Report(commands.Cog):
 
     # -- managers -------------------------------------------------------------
 
-    def _require_manager(self, ctx: commands.Context) -> None:
-        if not is_manager(ctx.author):
-            raise ReportError("Only administrators can use that command.")
-
     @commands.group(name="report", invoke_without_command=True)
-    @commands.guild_only()
+    @checks.manager_only()
     async def report(self, ctx: commands.Context):
         """MANAGERS: decide or correct match results (players use the widget in their set's channel)."""
-        if not is_manager(ctx.author):
-            raise ReportError("Pick the winner with the buttons on the widget in your set's channel.")
         await ctx.send("`!report manual` (in a set's channel): decide its current match yourself.\n"
                        "`!report correct [set ID] <match number>`: change a finished match's result, or reopen it.")
 
     @report.command(name="manual")
+    @checks.manager_only()
     async def manual(self, ctx: commands.Context):
         """MANAGERS: decide the current match of this set yourself, without logs."""
-        self._require_manager(ctx)
         t = self.bot.store.get(ctx.guild.id)
         s = _set_for_channel(t, ctx.channel.id)
         if s is None:
@@ -387,9 +381,9 @@ class Report(commands.Cog):
                        f"which team won?{note}", view=view)
 
     @report.command(name="correct", usage="[set ID] <match number>")
+    @checks.manager_only()
     async def correct(self, ctx: commands.Context, first: int, second: int = None):
         """MANAGERS: change a finished match's winner, or reopen the set's last match."""
-        self._require_manager(ctx)
         t = self.bot.store.get(ctx.guild.id)
         if second is None:
             s, n = _set_for_channel(t, ctx.channel.id), first
@@ -429,14 +423,15 @@ class Report(commands.Cog):
         async def reply_private(text: str):
             await interaction.response.send_message(text, ephemeral=True)
 
-        if interaction.guild is None or not isinstance(interaction.user, discord.Member) or not is_manager(interaction.user):
-            return await reply_private("Only administrators can use these buttons.")
+        if interaction.guild is None or not is_manager(interaction.user):
+            return await checks.ignore_click(interaction)
         t = self.bot.store.get(interaction.guild.id)
         s = t.find_set(set_id)
         if s is None or not 1 <= match_no <= len(s.matches):
             return await reply_private("This match doesn't exist anymore.")
         by, now = str(interaction.user.id), time.time()
         old_widget = s.matches[match_no - 1].report.widget_message_id if s.matches[match_no - 1].report else None
+        was_decided = s.get_winner() is not None
         try:
             if kind == "manual":
                 m = s.matches[match_no - 1]
@@ -446,6 +441,15 @@ class Report(commands.Cog):
         except ReportError as e:
             return await reply_private(str(e))
         self.bot.store.save(interaction.guild.id)
+
+        # Signals for other cogs (e.g. the stream cog archives the match, frees or re-assigns slots)
+        if kind == "manual":
+            self.bot.dispatch("match_finished", interaction.guild, s.set_id, match_no)
+        is_decided = s.get_winner() is not None
+        if is_decided and not was_decided:
+            self.bot.dispatch("set_decided", interaction.guild, s.set_id)
+        elif was_decided and not is_decided:
+            self.bot.dispatch("set_reopened", interaction.guild, s.set_id)
 
         # Buttons are single use: remove them, then announce to both teams.
         await interaction.response.edit_message(view=None)
@@ -495,14 +499,18 @@ class Report(commands.Cog):
             lines += ["", "The next match can now be added."]
         await channel.send(embed=discord.Embed(title=f"Set #{s.set_id}, match {match_no}: result",
                                                description="\n".join(lines)))
+        # Signals for other cogs (e.g. the stream cog archives the match, frees the set's slots)
+        self.bot.dispatch("match_finished", guild, s.set_id, match_no)
+        if s.get_winner() is not None:
+            self.bot.dispatch("set_decided", guild, s.set_id)
         await self.refresh_widgets(guild, [s.set_id])  # the next match, if it was already added
 
     async def cog_command_error(self, ctx: commands.Context, error: Exception):
+        if checks.is_silent(error):
+            return
         error = getattr(error, "original", error)
         if isinstance(error, ReportError):
             await ctx.send(str(error))
-        elif isinstance(error, commands.NoPrivateMessage):
-            await ctx.send("`!report` only works inside a server.")
         elif isinstance(error, (commands.BadArgument, commands.MissingRequiredArgument)):
             await ctx.send(f"I couldn't read that. Usage: `!{ctx.command.qualified_name} {ctx.command.signature}`")
         elif isinstance(error, (StorageError, OSError)):
