@@ -11,6 +11,7 @@ private (ephemeral) replies to the manager who clicks a button.
     !stream inspect <team>           details of the team's current stream
     !stream assign <slot> <team|none>  manual slot assignment (normally automatic)
     !stream kick <team>              disconnect whoever is publishing on the team's path
+    !stream twitch <team> <channel|off>  Twitch passthrough: the team's feed shows their Twitch stream
     !stream delay [minutes] [confirm]  show / preview / apply the delay (5-120 min)
     !stream archive                  archive health
     !stream vods <team | set ID>     archived files
@@ -82,6 +83,12 @@ def _text_cell(value) -> str:
     name gets a leading apostrophe, which they hide."""
     value = "" if value is None else str(value)
     return "'" + value if value[:1] in ("=", "+", "-", "@", "\t", "\r") else value
+
+
+def _twitch_text(twitch: dict) -> str:
+    """'twitch.tv/name (live)' for a team's Twitch passthrough setting."""
+    live = {True: "live", False: "offline"}.get(twitch.get("live"), "not checked yet")
+    return f"twitch.tv/{twitch['channel']} ({live})"
 
 
 def _csv_file(name: str, header: list[str], rows: list[list]) -> discord.File:
@@ -426,6 +433,8 @@ class Stream(commands.Cog):
                 lines.append(f"{mark} {_esc(p['name'])}{live}")
             if not players:
                 lines.append("*no logins yet: run `!stream export`*")
+            if team.get("twitch"):
+                lines.append(f":tv: via {_twitch_text(team['twitch'])}")
             embed.add_field(name=f"{_esc(names.get(path, team.get('name') or path))} ({path})",
                             value="\n".join(lines)[:1024], inline=True)
         slots = status.get("slots", {})
@@ -446,8 +455,13 @@ class Stream(commands.Cog):
         path = self._resolve_team(ctx.guild.id, team)
         info = await self._call("GET", f"/teams/{path}")
         embed = discord.Embed(title=f"{_esc(self._name_of(ctx.guild.id, path))} ({path})")
+        if info.get("twitch"):
+            embed.add_field(name="Twitch passthrough", inline=False,
+                            value=f"The feed shows {_twitch_text(info['twitch'])}. "
+                                  + ("The direct stream below is recorded." if info.get("live") else
+                                     "Not recorded: nobody streams to the tournament directly."))
         if not info.get("live"):
-            embed.description = "Not streaming right now."
+            embed.description = "Not streaming directly right now."
             return await ctx.send(embed=embed)
         seg = info.get("segment") or {}
         video = seg.get("video") or info.get("video") or {}
@@ -518,6 +532,24 @@ class Stream(commands.Cog):
         data = await self._call("POST", f"/teams/{path}/kick")
         await ctx.send(f"Disconnected **{data.get('login')}** from {_esc(self._name_of(ctx.guild.id, path))}. "
                        "If their software reconnects automatically, they need to stop it themselves.")
+
+    @stream.command(name="twitch", usage="<team> <channel|off>")
+    async def twitch(self, ctx: commands.Context, *, args: str):
+        """Twitch passthrough: the team's feed shows their own Twitch stream (which must be delayed by exactly
+        the tournament delay) instead of their recording; 'off' to stop. Players can also do this on the page."""
+        team, _, channel = args.strip().rpartition(" ")
+        if not team or not channel:
+            raise StreamError("Usage: `!stream twitch <team> <channel | off>`, e.g. `!stream twitch Team Falcon falconplays`.")
+        path = self._resolve_team(ctx.guild.id, team)
+        off = channel.lower() in ("off", "none", "-")
+        data = await self._call("PUT", f"/teams/{path}/twitch", {"channel": None if off else channel})
+        name = _esc(self._name_of(ctx.guild.id, path))
+        if data.get("channel"):
+            await ctx.send(f"**{name}**'s feed now shows **twitch.tv/{data['channel']}** whenever they're on. Their "
+                           "Twitch stream must be delayed by exactly the tournament delay (`!stream delay`), and it "
+                           "isn't recorded: for the archive they should also stream directly (page or OBS).")
+        else:
+            await ctx.send(f"**{name}**'s feed shows their own stream again.")
 
     @stream.command(name="delay", usage="[minutes] [confirm]")
     async def delay(self, ctx: commands.Context, minutes: float = None, confirm: str = None):
@@ -727,7 +759,11 @@ class Stream(commands.Cog):
                 line = f":red_circle: **{_esc(team.name)}**: streaming ({_esc(info.get('player_name') or info.get('login'))}, " \
                        f"since {_ts(info['since'], 'R')})"
             else:
-                line = f":black_circle: **{_esc(team.name)}**: not streaming"
+                line = f":black_circle: **{_esc(team.name)}**: not streaming" + (" directly" if info.get("twitch") else "")
+            if info.get("twitch"):
+                line += f"\n:tv: Casters see their Twitch stream, {_twitch_text(info['twitch'])}."
+                if not info.get("live"):
+                    line += " It isn't recorded: also streaming directly (page or OBS) puts it in the archive."
             refused = info.get("last_refused")
             if refused and now - refused["at"] < REFUSAL_NOTICE_SECONDS and info.get("live") and \
                     refused.get("login") != info.get("login"):
