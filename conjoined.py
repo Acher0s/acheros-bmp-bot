@@ -5,7 +5,6 @@ from models.deck import DECKS, Deck
 from models.stake import STAKES, Stake
 from models.tournament import Team, Stage, Round, TourneySet, match_bracket_group, GameResult, Match
 
-MAX_SELECTION_RETRIES = 10
 STAGE_1_ROUNDS = 4
 
 
@@ -79,29 +78,12 @@ class ConjoinedTournament:
         self.teams.append(team)
 
     def generate_selection(self, n=9) -> List[Tuple[Deck, Stake]]:
-        valid_decks = [deck for deck in DECKS if deck not in self.banned_decks]
-        valid_stakes = [stake for stake in STAKES if stake not in self.banned_stakes]
-
-        selection = []
-
-        i = 0
-        retries = 0
-        while i < n:
-            deck: Deck = random.choice(valid_decks)
-            stake: Stake = random.choice(valid_stakes)
-
-            combo = (deck, stake)
-            if combo in selection and retries < MAX_SELECTION_RETRIES:
-                print(combo, selection)
-                retries += 1
-            else:
-                selection.append(combo )
-
-                selection.sort(key=lambda x: x[0])  # Sort by deck first
-                selection.sort(key=lambda x: x[1])  # Sort by stake second
-
-                i+=1
-
+        """n different random deck/stake combos (fewer if bans leave fewer), sorted by stake, then deck."""
+        valid = [(deck, stake) for stake in STAKES if stake not in self.banned_stakes
+                 for deck in DECKS if deck not in self.banned_decks]
+        selection = random.sample(valid, min(n, len(valid)))
+        selection.sort(key=lambda x: x[0])  # Sort by deck first
+        selection.sort(key=lambda x: x[1])  # Sort by stake second
         return selection
 
 
