@@ -418,16 +418,19 @@ class Stream(commands.Cog):
         embed = discord.Embed(title="Streams overview")
         if not status.get("mediamtx_ok"):
             embed.description = ":warning: The media server isn't answering; live status may be out of date."
-        verified = total = 0
+        # A team needs at least one tested player (whoever streams its games), not every player
+        teams_tested = teams_total = 0
         for team in status.get("teams", []):
             path = team["path"]
             players = by_team.get(path, [])
             if not players and path not in names:
                 continue
             lines = []
+            tested = any(p["verified"] for p in players)
+            if players:
+                teams_total += 1
+                teams_tested += tested
             for p in players:
-                total += 1
-                verified += bool(p["verified"])
                 mark = ":white_check_mark:" if p["verified"] else ":x:"
                 live = " :red_circle: **live**" if team.get("live") and team.get("login") == p["login"] else ""
                 lines.append(f"{mark} {_esc(p['name'])}{live}")
@@ -435,7 +438,8 @@ class Stream(commands.Cog):
                 lines.append("*no logins yet: run `!stream export`*")
             if team.get("twitch"):
                 lines.append(f":tv: via {_twitch_text(team['twitch'])}")
-            embed.add_field(name=f"{_esc(names.get(path, team.get('name') or path))} ({path})",
+            label = _esc(names.get(path, team.get('name') or path))
+            embed.add_field(name=f"{'' if tested else ':warning: '}{label} ({path})",
                             value="\n".join(lines)[:1024], inline=True)
         slots = status.get("slots", {})
         assigned = [f"`{slot}` {_esc(self._name_of(ctx.guild.id, team))}" for slot, team in slots.items() if team]
@@ -443,7 +447,7 @@ class Stream(commands.Cog):
         fits = len(embed) + sum(len(line) + 1 for line in assigned) + 200 < 6000
         slots_embed = embed if fits else discord.Embed(title="Streams overview: slots")
         discord_text.add_fields(slots_embed, "Slots now", assigned, empty="none assigned")
-        embed.set_footer(text=f"{verified}/{total} players have streamed successfully · "
+        embed.set_footer(text=f"{teams_tested}/{teams_total} teams tested (one player each is enough) · "
                               f"delay {status.get('delay_minutes', 0):g} min")
         await ctx.send(embed=embed)
         if not fits:
