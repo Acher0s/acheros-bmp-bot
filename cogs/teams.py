@@ -4,6 +4,7 @@ import discord
 from discord.ext import commands
 
 import checks
+import discord_text
 import registration as reg
 import team_roles
 from models.tournament import Player, Team
@@ -158,8 +159,9 @@ class Teams(commands.Cog):
             return
         teams = sorted(t.teams, key=lambda x: x.name.casefold())
         lines = [f"{i}. {format_team(team)}" for i, team in enumerate(teams, start=1)]
-        embed = discord.Embed(title=f"Registered teams ({len(teams)})", description="\n".join(lines))
-        await ctx.send(embed=embed)
+        for i, block in enumerate(discord_text.chunks(lines, discord_text.DESCRIPTION_LIMIT)):
+            await ctx.send(embed=discord.Embed(title=f"Registered teams ({len(teams)})" if i == 0 else None,
+                                               description=block))
 
     # -- errors ---------------------------------------------------------------
 

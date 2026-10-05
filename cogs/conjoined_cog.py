@@ -23,6 +23,7 @@ import logging
 import discord
 from discord.ext import commands
 
+import discord_text
 import match_channels
 import matchups
 import reports
@@ -169,7 +170,8 @@ class Conjoined(commands.Cog):
                       f"(best of {rnd.matchups[0].best_of}):"]
         lines += [matchups.format_set(s) for s in rnd.matchups]
         lines += ["", "Next: `!conjoined add_matches_all <deck> <stake>`, then `!conjoined start_matches_all`."]
-        await ctx.send(embed=discord.Embed(title="Next round", description="\n".join(lines)[:4096]))
+        for i, block in enumerate(discord_text.chunks(lines, discord_text.DESCRIPTION_LIMIT)):
+            await ctx.send(embed=discord.Embed(title="Next round" if i == 0 else None, description=block))
 
     @conjoined.command(name="list_matchups")
     @manager_only()
@@ -178,11 +180,10 @@ class Conjoined(commands.Cog):
         t = self._tournament(ctx)
         rnd = matchups.require_current_round(t)
         stage = t.stages[t.cur_stage_idx]
-        embed = discord.Embed(
-            title=f"Stage {t.cur_stage_idx + 1}, round {stage.cur_round_idx + 1}: matchups",
-            description="\n".join(matchups.format_set(s) for s in rnd.matchups) or "No matchups.",
-        )
-        await ctx.send(embed=embed)
+        lines = [matchups.format_set(s) for s in rnd.matchups] or ["No matchups."]
+        for i, block in enumerate(discord_text.chunks(lines, discord_text.DESCRIPTION_LIMIT)):
+            title = f"Stage {t.cur_stage_idx + 1}, round {stage.cur_round_idx + 1}: matchups" if i == 0 else None
+            await ctx.send(embed=discord.Embed(title=title, description=block))
 
     @conjoined.command(name="list_matches", usage="<set ID>")
     @manager_only()
@@ -204,8 +205,8 @@ class Conjoined(commands.Cog):
         t = self._tournament(ctx)
         embed = discord.Embed(title="Conjoined standings")
         embed.add_field(name="Current stage & round", value=matchups.progress_text(t), inline=False)
-        embed.add_field(name="Standings (set wins-losses)", value=matchups.standings_text(t)[:1024], inline=False)
-        embed.add_field(name="Eliminated teams", value=matchups.eliminated_text(t)[:1024], inline=False)
+        discord_text.add_fields(embed, "Standings (set wins-losses)", matchups.standings_text(t).split("\n"))
+        discord_text.add_fields(embed, "Eliminated teams", [matchups.eliminated_text(t)])
         await ctx.send(embed=embed)
 
     @conjoined.command(name="roundstats", usage="[stage] [round]")

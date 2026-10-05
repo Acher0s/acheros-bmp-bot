@@ -44,6 +44,7 @@ import reports
 from checks import is_manager
 from dummies import is_dummy_team
 from emojis import combo_label
+from matchups import _esc
 from models.tournament import GameState, TourneySet
 from persistence import StorageError
 from report_web import ReportWeb
@@ -68,6 +69,11 @@ def _set_for_channel(t, channel_id: int) -> TourneySet | None:
 
 def _team(s: TourneySet, slot: int):
     return s.team1 if slot == 1 else s.team2
+
+
+def _name(team) -> str:
+    """A team's name for Discord markdown (names may contain *, _, ` and the like)."""
+    return _esc(team.name)
 
 
 def _voter_slots(member, s: TourneySet) -> list[int]:
@@ -152,8 +158,8 @@ def widget_message(guild, s: TourneySet, n: int, m, status: ReportStatus, now: f
              "**Who won?** When the match is done, each team picks the winner below."]
     for slot in reports.SLOTS:
         pick = r.votes.get(slot)
-        lines.append(f"{_mark(pick is not None, pending=True)} **{_team(s, slot).name}** "
-                     + (f"picked **{_team(s, pick).name}**" if pick is not None else "hasn't picked yet"))
+        lines.append(f"{_mark(pick is not None, pending=True)} **{_name(_team(s, slot))}** "
+                     + (f"picked **{_name(_team(s, pick))}**" if pick is not None else "hasn't picked yet"))
 
     agreed = r.agreed_winner
     view = discord.ui.View(timeout=None)
@@ -164,19 +170,19 @@ def widget_message(guild, s: TourneySet, n: int, m, status: ReportStatus, now: f
         if len(r.votes) == 2:
             lines += ["", ":warning: The teams picked different winners. Talk it out, or ask a manager."]
     else:
-        lines += ["", f"Both teams agree: **{_team(s, agreed).name}** won.",
+        lines += ["", f"Both teams agree: **{_name(_team(s, agreed))}** won.",
                   "**Next:** each team uploads its Lovely log (in the Balatro folder under `Mods/lovely/log`) on "
                   "the report page. The result is recorded once both logs show this game."]
         for slot in reports.SLOTS:
             up, has = status.uploaded[slot], status.has_game[slot]
             detail = ("log uploaded" if has else "log uploaded, but it has no finished game on this deck/stake") \
                 if up else "no log yet"
-            lines.append(f"{_mark(up and has, pending=not up)} **{_team(s, slot).name}**: {detail}")
+            lines.append(f"{_mark(up and has, pending=not up)} **{_name(_team(s, slot))}**: {detail}")
         if status.uploaded[1] and status.uploaded[2] and status.has_game[1] and status.has_game[2] and not status.paired:
             lines.append(":warning: The two logs don't show the same game (same seed, same two players, one win "
                          "and one loss). One of them may be the wrong file.")
         if status.conflict:
-            lines.append(f":warning: The logs show **{_team(s, status.log_winner).name}** won. Change your pick, "
+            lines.append(f":warning: The logs show **{_name(_team(s, status.log_winner))}** won. Change your pick, "
                          "or ask a manager if the logs are wrong.")
         if reports.page_is_open(r, now):
             lines.append(f"The link expires <t:{int(r.expires_at)}:R>.")
@@ -327,7 +333,7 @@ class Report(commands.Cog):
         if interaction.message is not None and interaction.message.id == m.report.widget_message_id:
             await interaction.response.edit_message(embed=embed, view=view)
         else:  # clicked on an old copy of the widget
-            await reply_private(f"Got it: you picked **{_team(s, winner_slot).name}**.")
+            await reply_private(f"Got it: you picked **{_name(_team(s, winner_slot))}**.")
             await self.update_widget(interaction.guild, set_id, match_no)
 
     # -- after an upload on the web page --------------------------------------
@@ -408,10 +414,10 @@ class Report(commands.Cog):
             view.add_item(ManagerButton("correct", s.set_id, n, slot, f"{_team(s, slot).name} won"))
         if n == len(s.matches):
             view.add_item(ManagerButton("correct", s.set_id, n, 0, "Reopen match"))
-        current = {"TEAM1_WIN": s.team1.name, "TEAM2_WIN": s.team2.name}.get(m.result.name if m.result else None)
+        current = {"TEAM1_WIN": _name(s.team1), "TEAM2_WIN": _name(s.team2)}.get(m.result.name if m.result else None)
         embed = discord.Embed(
             title=f"Correct set #{s.set_id}, match {n}",
-            description=(f"{s.team1.name} (team 1) vs {s.team2.name} (team 2), {m.deck} / {m.stake}\n"
+            description=(f"{_name(s.team1)} (team 1) vs {_name(s.team2)} (team 2), {m.deck} / {m.stake}\n"
                          f"Current result: **{current + ' won' if current else m.result.name}**\n\n"
                          f"**History**\n{_history_text(m)}\n\n"
                          "Pick the right winner. *Reopen* clears the result so the match can be played and "
@@ -459,10 +465,10 @@ class Report(commands.Cog):
                     "Play it (again) and pick the winner on the widget.")
         else:
             verb = "decided" if kind == "manual" else "corrected"
-            text = (f":white_check_mark: {who} {verb} match {match_no}: **{_team(s, choice).name}** won. "
+            text = (f":white_check_mark: {who} {verb} match {match_no}: **{_name(_team(s, choice))}** won. "
                     f"Set score: {'{}-{}'.format(*s.get_standings())}.")
             if s.get_winner() is not None:
-                text += f"\n:trophy: **{s.get_winner().name}** wins set #{s.set_id}!"
+                text += f"\n:trophy: **{_name(s.get_winner())}** wins set #{s.set_id}!"
         channel = interaction.guild.get_channel(s.channel_id) if s.channel_id else None
         if channel is not None and old_widget is not None and kind == "manual":
             await self._delete_message(channel, old_widget)  # its voting is over
@@ -487,14 +493,14 @@ class Report(commands.Cog):
         if m.report is not None and m.report.widget_message_id is not None:
             await self._delete_message(channel, m.report.widget_message_id)
         winner = _team(s, status.log_winner)
-        lines = [f"**{winner.name}** won match {match_no} ({m.deck} / {m.stake}). "
+        lines = [f"**{_name(winner)}** won match {match_no} ({m.deck} / {m.stake}). "
                  f"Set score: {'{}-{}'.format(*s.get_standings())}.", ""]
         for slot, g in zip(reports.SLOTS, status.pair):
-            lines.append(f"**{_team(s, slot).name}** ({g.player}): {g.rerolls} rerolls, ${g.money_spent} spent, "
+            lines.append(f"**{_name(_team(s, slot))}** ({g.player}): {g.rerolls} rerolls, ${g.money_spent} spent, "
                          f"highest score {g.highest_score or '-'}")
         lines.append(f"Seed: `{status.pair[0].seed}`")
         if s.get_winner() is not None:
-            lines += ["", f":trophy: **{s.get_winner().name}** wins set #{s.set_id}!"]
+            lines += ["", f":trophy: **{_name(s.get_winner())}** wins set #{s.set_id}!"]
         else:
             lines += ["", "The next match can now be added."]
         await channel.send(embed=discord.Embed(title=f"Set #{s.set_id}, match {match_no}: result",

@@ -71,7 +71,10 @@ def _roles(guild: discord.Guild, s: TourneySet) -> tuple[discord.Role, discord.R
 
 
 def channel_name(s: TourneySet) -> str:
-    slug = lambda text: re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+    """'set-12-falcons-vs-otters'. Discord allows 100 characters, so each team gets half of what's
+    left; letters of any alphabet are kept, everything else (spaces, symbols, emoji) becomes '-'."""
+    budget = (100 - len(f"set-{s.set_id}--vs-")) // 2
+    slug = lambda text: re.sub(r"[\W_]+", "-", text.lower()).strip("-")[:budget].strip("-")
     parts = ["set", str(s.set_id), slug(s.team1.name), "vs", slug(s.team2.name)]
     return "-".join(p for p in parts if p)[:100]
 

@@ -45,6 +45,7 @@ import discord
 from discord.ext import commands, tasks
 
 import checks
+import discord_text
 import reports
 
 log = logging.getLogger(__name__)
@@ -71,12 +72,25 @@ def _esc(text) -> str:
     return discord.utils.escape_markdown(str(text))
 
 
+def _key(name: str) -> str:
+    """How team names are compared: any case, runs of spaces count as one (as in registration.py)."""
+    return " ".join(name.split()).casefold()
+
+
+def _text_cell(value) -> str:
+    """A name for a CSV cell. Spreadsheets run a cell starting with = + - @ as a formula, so such a
+    name gets a leading apostrophe, which they hide."""
+    value = "" if value is None else str(value)
+    return "'" + value if value[:1] in ("=", "+", "-", "@", "\t", "\r") else value
+
+
 def _csv_file(name: str, header: list[str], rows: list[list]) -> discord.File:
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(header)
     writer.writerows(rows)
-    return discord.File(io.BytesIO(buf.getvalue().encode("utf-8")), filename=name)
+    # With a BOM, Excel reads the file as UTF-8 (accents and emoji in names) instead of the local code page
+    return discord.File(io.BytesIO(buf.getvalue().encode("utf-8-sig")), filename=name)
 
 
 def _find_set(t, set_id: int):
@@ -240,13 +254,19 @@ class Stream(commands.Cog):
         return state.team_paths
 
     def _resolve_team(self, guild_id: int, value: str) -> str:
-        """A team name (any case) or team path -> team path."""
+        """A team name (any case; quotes around it are optional) or team path -> team path. Names come
+        first, so a team that happens to be called e.g. 'team03' is still found by its name."""
         paths = self._team_paths(guild_id)
-        if re.fullmatch(r"team\d{2}", value.lower()) and value.lower() in paths.values():
-            return value.lower()
-        for name, path in paths.items():
-            if name.casefold() == value.casefold():
-                return path
+        stripped = value.strip()
+        unquoted = stripped[1:-1] if len(stripped) > 1 and stripped[0] in '"\u201c' and stripped[-1] in '"\u201d' \
+            else stripped
+        for candidate in dict.fromkeys((value, unquoted)):
+            for name, path in paths.items():
+                if _key(name) == _key(candidate):
+                    return path
+        lowered = value.strip().lower()
+        if re.fullmatch(r"team\d{2}", lowered) and lowered in paths.values():
+            return lowered
         raise StreamError(f"Unknown team **{_esc(value)}**.")
 
     def _name_of(self, guild_id: int, path: str | None) -> str:
@@ -324,13 +344,14 @@ class Stream(commands.Cog):
         files = [_csv_file("stream-players.csv",
                            ["team", "team_path", "player", "discord_id", "login", "password", "browser_link",
                             "obs_srt_url", "streamed_successfully"],
-                           [[p.get("team_name"), p.get("team_path"), p["name"], p["discord_id"], p["login"],
-                             p["password"], p.get("browser_url"), p.get("srt_url"), "yes" if p.get("verified") else "no"]
+                           [[_text_cell(p.get("team_name")), p.get("team_path"), _text_cell(p["name"]), p["discord_id"],
+                             p["login"], p["password"], p.get("browser_url"), p.get("srt_url"),
+                             "yes" if p.get("verified") else "no"]
                             for p in players])]
         if casters:
             files.append(_csv_file("stream-casters.csv",
                                    ["caster", "discord_id", "login", "password", "slot", "browser_link", "obs_srt_url"],
-                                   [[c["name"], c["discord_id"], c["login"], c["password"], f["slot"],
+                                   [[_text_cell(c["name"]), c["discord_id"], c["login"], c["password"], f["slot"],
                                      f["browser_url"], f["srt_url"]] for c in casters for f in c.get("feeds", [])]))
         created, revoked = data.get("created", []), data.get("revoked", [])
         summary = (f"{len(players)} player login(s), {len(casters)} caster login(s). "
@@ -409,10 +430,15 @@ class Stream(commands.Cog):
                             value="\n".join(lines)[:1024], inline=True)
         slots = status.get("slots", {})
         assigned = [f"`{slot}` {_esc(self._name_of(ctx.guild.id, team))}" for slot, team in slots.items() if team]
-        embed.add_field(name="Slots now", value="\n".join(assigned)[:1024] or "none assigned", inline=False)
+        # Discord caps an embed at 6000 characters in all: with long team names, the slots go in a second one
+        fits = len(embed) + sum(len(line) + 1 for line in assigned) + 200 < 6000
+        slots_embed = embed if fits else discord.Embed(title="Streams overview: slots")
+        discord_text.add_fields(slots_embed, "Slots now", assigned, empty="none assigned")
         embed.set_footer(text=f"{verified}/{total} players have streamed successfully · "
                               f"delay {status.get('delay_minutes', 0):g} min")
         await ctx.send(embed=embed)
+        if not fits:
+            await ctx.send(embed=slots_embed)
 
     @stream.command(name="inspect", usage="<team>")
     async def inspect(self, ctx: commands.Context, *, team: str):
@@ -449,12 +475,14 @@ class Stream(commands.Cog):
             m = SLOT_RE.match(slot["slot"])
             if m:
                 by_pos.setdefault(int(m.group(1)), []).append(slot)
-        blocks = []
+        lines = []
         for pos in sorted(by_pos):
             slots = by_pos[pos]
             if not any(s["team"] or s["upcoming"] for s in slots):
                 continue
-            lines = [f"**Set position {pos}** (on your feeds now, {delay:g} min behind)"]
+            if lines:
+                lines.append("")
+            lines.append(f"**Set position {pos}** (on your feeds now, {delay:g} min behind)")
             for s in slots:
                 lines.append(f"`{s['slot']}` {_esc(self._name_of(ctx.guild.id, s['team']) if s['team'] else '(slate)')}")
             upcoming = {}
@@ -465,16 +493,20 @@ class Stream(commands.Cog):
                 pair = " vs ".join(_esc(self._name_of(ctx.guild.id, teams.get(f"s{pos}t{n}")))
                                    for n in (1, 2) if f"s{pos}t{n}" in teams)
                 lines.append(f"Next on s{pos}: {pair}, reaches your feeds at {_ts(at)}")
-            blocks.append("\n".join(lines))
-        await ctx.send("\n\n".join(blocks)[:2000] or "Nothing is assigned to any feed yet.")
+        await discord_text.send_lines(ctx, lines or ["Nothing is assigned to any feed yet."])
 
     @stream.command(name="assign", usage="<slot> <team|none>")
     async def assign(self, ctx: commands.Context, slot: str, *, team: str):
-        """Manually assign a team to a slot (e.g. s1t1 Team Falcon), or free it with 'none'."""
+        """Manually assign a team to a slot (e.g. s1t1 Team Falcon), or free it with 'none' or '-'."""
         slot = slot.lower()
         if not SLOT_RE.match(slot):
             raise StreamError(f"Slots are s1t1 .. s{SET_COUNT}t2.")
-        path = None if team.lower() == "none" else self._resolve_team(ctx.guild.id, team)
+        try:
+            path = self._resolve_team(ctx.guild.id, team)
+        except StreamError:
+            if team.strip().lower() not in ("none", "-"):
+                raise
+            path = None
         await self._call("PUT", "/slots", {slot: path})
         await ctx.send(f"`{slot}` is now {'free' if path is None else '**' + _esc(self._name_of(ctx.guild.id, path)) + '**'}."
                        " It reaches the casters' feeds one delay later.")
@@ -539,7 +571,7 @@ class Stream(commands.Cog):
             embed.add_field(name="Last stitched", value=f"{last['match_id']} ({_ts(last['at'], 'R')})" if last else "none yet")
             if remote.get("stitch_errors"):
                 embed.add_field(name="Stitch problems", inline=False, value="\n".join(
-                    f"{e.get('match_id')} {e.get('team_name') or e.get('team')}: {e.get('error')}"
+                    f"{e.get('match_id')} {_esc(self._name_of(ctx.guild.id, e.get('team')))}: {e.get('error')}"
                     for e in remote["stitch_errors"][-5:])[:1024])
         embed.add_field(name="Footage lost", value=str(data.get("lost_segments", 0)) + " segment(s)")
         await ctx.send(embed=embed)
@@ -547,14 +579,19 @@ class Stream(commands.Cog):
     @stream.command(name="vods", usage="<team | set ID>")
     async def vods(self, ctx: commands.Context, *, target: str):
         """Archived files for a team or a set (e.g. !stream vods Team Falcon, !stream vods 12)."""
-        set_id = re.fullmatch(r"#?(?:set)?\s*(\d+)", target.strip().lower())
-        query = f"?match=set{set_id.group(1)}-" if set_id else f"?team={self._resolve_team(ctx.guild.id, target)}"
+        try:
+            query = f"?team={self._resolve_team(ctx.guild.id, target)}"
+        except StreamError:
+            set_id = re.fullmatch(r"#?(?:set)?\s*(\d+)", target.strip().lower())
+            if not set_id:
+                raise
+            query = f"?match=set{set_id.group(1)}-"
         files = (await self._call("GET", "/vods" + query)).get("vods", [])
         if not files:
             return await ctx.send("No archived files for that yet.")
-        lines = [f"`{f['match_id']}` {_esc(f.get('team_name') or f['team'])}: `{f['path']}` "
+        lines = [f"`{f['match_id']}` {_esc(self._name_of(ctx.guild.id, f['team']))}: `{f['path']}` "
                  f"({f.get('size_bytes', 0) / 1e6:.0f} MB{', has gaps' if f.get('gaps') else ''})" for f in files]
-        await ctx.send("\n".join(lines)[:2000])
+        await discord_text.send_lines(ctx, lines)
 
     # -- automatic behaviour (signals from the other cogs) -----------------------------
 

@@ -10,10 +10,11 @@ from __future__ import annotations
 from typing import Iterable, List
 
 from conjoined import ConjoinedTournament
+from matchups import _esc
 from models.tournament import Player, Team
 
 MAX_TEAM_SIZE: int | None = 2
-MAX_NAME_LENGTH = 32
+MAX_NAME_LENGTH = 64
 
 
 class RegistrationError(Exception):
@@ -32,7 +33,7 @@ def find_team(t: ConjoinedTournament, name: str) -> Team | None:
 def require_team(t: ConjoinedTournament, name: str) -> Team:
     team = find_team(t, name)
     if team is None:
-        raise RegistrationError(f"No team called **{name}**. Use `!team list` to see registered teams.")
+        raise RegistrationError(f"No team called **{_esc(name)}**. Use `!team list` to see registered teams.")
     return team
 
 
@@ -67,7 +68,7 @@ def create_team(t: ConjoinedTournament, name: str, players: Iterable[Player]) ->
     if len(name) > MAX_NAME_LENGTH:
         raise RegistrationError(f"Team names can be at most {MAX_NAME_LENGTH} characters.")
     if find_team(t, name) is not None:
-        raise RegistrationError(f"A team called **{name}** already exists.")
+        raise RegistrationError(f"A team called **{_esc(name)}** already exists.")
     if t.is_full():
         raise RegistrationError("The tournament is full.")
 
@@ -76,7 +77,7 @@ def create_team(t: ConjoinedTournament, name: str, players: Iterable[Player]) ->
     for p in players:
         other = team_of(t, p.uid)
         if other is not None:
-            raise RegistrationError(f"<@{p.uid}> is already on **{other.name}**.")
+            raise RegistrationError(f"<@{p.uid}> is already on **{_esc(other.name)}**.")
 
     team = Team(name)
     for p in players:
@@ -91,7 +92,7 @@ def add_players(t: ConjoinedTournament, team: Team, players: Iterable[Player]) -
     for p in players:
         current = team_of(t, p.uid)
         if current is not None:
-            raise RegistrationError(f"<@{p.uid}> is already on **{current.name}**.")
+            raise RegistrationError(f"<@{p.uid}> is already on **{_esc(current.name)}**.")
     _check_size(len(team.players) + len(players))
     for p in players:
         team.add_player(p)
@@ -103,7 +104,7 @@ def remove_players(t: ConjoinedTournament, team: Team, players: Iterable[Player]
     players = _dedupe(players)
     for p in players:
         if not any(x.uid == p.uid for x in team.players):
-            raise RegistrationError(f"<@{p.uid}> isn't on **{team.name}**.")
+            raise RegistrationError(f"<@{p.uid}> isn't on **{_esc(team.name)}**.")
     for p in players:
         team.remove_player(p)
     if team.is_empty():

@@ -30,6 +30,7 @@ from models.deck import DECKS
 from models.stake import STAKES
 from persistence import StorageError
 import checks
+import discord_text
 
 log = logging.getLogger(__name__)
 
@@ -139,10 +140,11 @@ class Util(commands.Cog):
             lines.append(f"{len(kept)} already existed; their permissions are reset to team-only.")
         if no_role:
             lines.append(f":warning: Skipped {len(no_role)} team(s) without a Discord role: "
-                         + ", ".join(no_role) + ". Run `!team syncroles`, then this command again.")
+                         + ", ".join(discord.utils.escape_markdown(n) for n in no_role)
+                         + ". Run `!team syncroles`, then this command again.")
         lines.append("Only each team's members can see their channel. Members with Administrator (or Manage "
                      "Channels/Roles) can always see every channel; Discord doesn't allow blocking them.")
-        await ctx.send("\n".join(lines)[:2000])
+        await discord_text.send_lines(ctx, lines)
 
     # -- dummy teams (testing) --------------------------------------------------
 
