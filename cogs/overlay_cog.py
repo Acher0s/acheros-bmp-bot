@@ -8,8 +8,9 @@ text per URL, to place into any box of a stream layout.
   /overlay/round                    e.g. "Stage 1 · Round 2"
   /overlay/state.json               the data the pages poll every 2 s
 
-Optional query options: size=72 (px, default 72), align=left|center|right, color=000000,
-key=... (required when OVERLAY_KEY is set). Long text shrinks to fit the source's width.
+The text is as large as fits the Browser Source's box (width and height, refitted when the source
+is resized), centered both ways. Optional query options: size=N (largest size in px), align=left|
+center|right, valign=top|middle|bottom, color=000000, key=... (required when OVERLAY_KEY is set).
 
 The text follows the casters' delayed feeds (stream service lineup): the team on each slot and
 standings as of feed time, so it never shows a result before viewers see it. Without the stream
@@ -158,8 +159,9 @@ class Overlay(commands.Cog):
         html = ("<!doctype html><meta charset=utf-8><title>Overlays</title>"
                 "<style>body{font-family:sans-serif;margin:2em;background:#222;color:#eee}a{color:#7cf}"
                 "td{padding:.3em 1em}</style><h1>OBS browser sources</h1>"
-                "<p>Add each as a Browser Source sized to its box. Text is black, 72px, transparent background; add "
-                "<code>?size=48</code>, <code>?align=left</code> or <code>?color=ffffff</code> to change it "
+                "<p>Add each as a Browser Source sized to its box: the text fills the box (as large as fits, centered), "
+                "black on a transparent background. Add <code>?size=48</code> (largest size), "
+                "<code>?align=left</code>, <code>?valign=top</code> or <code>?color=ffffff</code> to change it "
                 "(join several with <code>&amp;</code>).</p>"
                 f"<table>{''.join(rows)}</table>")
         return web.Response(text=html, content_type="text/html")
