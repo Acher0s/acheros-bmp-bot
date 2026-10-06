@@ -8,7 +8,7 @@ The widget (players)
   The result is recorded once both logs are in and show that winner.
   The widget is posted by the bot as soon as a match needs a result, and every
   WIDGET_MOVE_MINUTES it is re-posted at the bottom of the channel if other
-  messages came after it.
+  messages came after it (silently: re-posts don't notify anyone).
   While testing, a manager who isn't on either team votes for the set's dummy
   team(s), which can't click themselves.
 
@@ -235,7 +235,8 @@ class Report(commands.Cog):
             self.bot.store.save(guild.id)  # ensure_report may have changed the match
 
             embed, view = widget_message(guild, s, n, m, reports.check(m, reports.used_seeds(t, m)), time.time())
-            msg = await channel.send(embed=embed, view=view)
+            # Moving it to the bottom is housekeeping: no notification. The first post of a match does notify.
+            msg = await channel.send(embed=embed, view=view, silent=old is not None)
 
             t = self.bot.store.get(guild.id)  # look it up again after the await
             s = t.find_set(set_id)

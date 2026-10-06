@@ -14,7 +14,9 @@ saved to disk right after every Discord change. Both functions are idempotent:
 The lock below is per server and only prevents two commands from racing.
 
 Bot permissions: Manage Channels, Manage Roles, View Channel, Send Messages,
-Read Message History.
+Read Message History. The intro pings each team's role; give the bot "Mention
+@everyone, @here and All Roles" (or make the team roles mentionable), otherwise
+it pings the players one by one instead.
 """
 from __future__ import annotations
 
@@ -87,10 +89,16 @@ def channel_name(s: TourneySet) -> str:
     return "-".join(p for p in parts if p)[:100]
 
 
+def _can_ping_role(role: discord.Role) -> bool:
+    """Discord only pings a role if it's mentionable, or the sender may mention all roles."""
+    me = role.guild.me
+    return role.mentionable or (me is not None and me.guild_permissions.mention_everyone)
+
+
 def _ping(team: Team, role: discord.Role) -> str:
-    """Ping the team's role, or its real players one by one if the role can't be mentioned.
+    """Ping the team's role, or its real players one by one if the role can't be pinged.
     A team made only of dummy players can't be pinged, so it is just named."""
-    if role.mentionable:
+    if _can_ping_role(role):
         return role.mention
     pings = [f"<@{p.uid}>" for p in team.players if not is_dummy_uid(p.uid)]
     return " ".join(pings) or f"**{matchups._esc(team.name)}**"
@@ -156,7 +164,9 @@ async def start_set(store: TournamentStore, guild: discord.Guild, set_id: int) -
         role1, role2 = _roles(guild, s)
 
         channel = _existing_channel(guild, s) or await _create_channel(guild, s, role1, role2)
-        await channel.send(intro_text(guild, s, role1, role2))
+        # The bot pings nobody by default (bot.py): allow exactly the two teams here.
+        await channel.send(intro_text(guild, s, role1, role2),
+                           allowed_mentions=discord.AllowedMentions(roles=[role1, role2], users=True))
 
         # Change -> save with no `await` in between.
         s = _get_set(store, guild.id, set_id)
