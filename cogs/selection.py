@@ -11,11 +11,12 @@ How voting works:
   * At !selection stopvote the ballots are re-checked (someone may have left or
     been eliminated meanwhile) and the counts are stored on the tournament.
   * !selection pullrandom takes a vote-weighted random pick from the latest
-    recorded vote and shows it as text plus a picture (see visuals.py). The
-    pulled deck and stake are banned right away.
+    recorded vote and shows it as text plus a picture (see visuals.py). It
+    doesn't ban anything: `!conjoined add_matches_all` bans the deck and stake
+    once the match is added.
 
 Bans: a banned deck or stake is never offered in a vote, can't be added as a
-match, and options of an earlier vote that use one are skipped by pullrandom.
+match (except to fill in sets of a round that already plays that combo), and options of an earlier vote that use one are skipped by pullrandom.
 !selection bandeck / banstake / unbandeck / unbanstake / unbanall manage them;
 they're saved with the tournament.
 
@@ -39,7 +40,7 @@ from discord.ext import commands
 import checks
 import matchups
 from conjoined import VoteResults
-from emojis import combo_label, deck_label, stake_label
+from emojis import bans_text, combo_label, deck_label, stake_label
 from matchups import MatchupError
 from models.deck import DECKS, Deck
 from models.stake import STAKES, Stake
@@ -88,12 +89,6 @@ def _results_text(results: VoteResults, guild: discord.Guild) -> str:
         pct = f" ({votes / total:.0%})" if total else ""
         lines.append(f"{emoji} {combo_label(guild, deck, stake)}: {votes}{pct}")
     return "\n".join(lines)
-
-
-def _bans_text(t, guild: discord.Guild) -> str:
-    decks = ", ".join(deck_label(guild, d) for d in t.banned_decks) or "none"
-    stakes = ", ".join(stake_label(guild, s) for s in t.banned_stakes) or "none"
-    return f"Banned decks: {decks}\nBanned stakes: {stakes}"
 
 
 @dataclass
@@ -212,9 +207,9 @@ class Selection(commands.Cog):
 
     @selection.command(name="pullrandom")
     async def pullrandom(self, ctx: commands.Context):
-        """Pull a random combo from the latest recorded vote, weighted by the votes, and ban its deck
-        and stake. Options using a deck or stake that's banned by now are skipped, so running it again
-        pulls one of the remaining options. Shows the result as text and as a picture."""
+        """Pull a random combo from the latest recorded vote, weighted by the votes. Options using a
+        banned deck or stake are skipped. Bans nothing itself: adding the match with
+        `!conjoined add_matches_all` bans its deck and stake. Shows the result as text and as a picture."""
         t = self.bot.store.get(ctx.guild.id)
         if not t.vote_results:
             raise SelectionError("No vote has been recorded yet. Use `!selection startvote`, then `!selection stopvote`.")
@@ -232,15 +227,10 @@ class Selection(commands.Cog):
         combo = allowed.random_weighted_selection()
         idx = allowed.selection.index(combo)
         deck, stake = combo
-        # Rule: change -> save with no `await` in between.
-        t.banned_decks.append(deck)
-        t.banned_stakes.append(stake)
-        self.bot.store.save(ctx.guild.id)
-
         embed = discord.Embed(
             title="Random pull from the latest vote",
             description=(f"**Result:** {NUMBER_EMOJIS[idx]} {combo_label(ctx.guild, deck, stake)}\n\n"
-                         f"{deck_label(ctx.guild, deck)} and {stake_label(ctx.guild, stake)} are banned from now on."),
+                         f"Run `!conjoined add_matches_all {deck.name} {stake.name}` to add the matches."),
         )
         try:  # the picture is a bonus: if it can't be drawn, still send the text result
             image = await asyncio.to_thread(render_pull_image, allowed, idx, random.random())
@@ -300,7 +290,7 @@ class Selection(commands.Cog):
         else:
             bans.remove(item)
         self.bot.store.save(ctx.guild.id)
-        await ctx.send(f"{label} is {'banned' if banned else 'allowed again'}.\n{_bans_text(t, ctx.guild)}")
+        await ctx.send(f"{label} is {'banned' if banned else 'allowed again'}.\n{bans_text(t, ctx.guild)}")
 
     async def _still_eligible(self, guild: discord.Guild, uid: int) -> bool:
         if uid < 0:  # DEV: fake voters from !util fakevotes

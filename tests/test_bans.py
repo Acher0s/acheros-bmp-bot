@@ -1,4 +1,4 @@
-"""Deck/stake bans: !selection ban commands, and pullrandom banning what it pulls.  Run from the repo root:  python -m pytest tests"""
+"""Deck/stake bans: !selection ban commands, pullrandom skipping bans, add_matches_all banning what it adds.  Run from the repo root:  python -m pytest tests"""
 import asyncio
 import os
 import sys
@@ -8,11 +8,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest  # noqa: E402
 
+import dummies  # noqa: E402
 import matchups  # noqa: E402
 from cogs.selection import Selection, SelectionError  # noqa: E402
 from conjoined import ConjoinedTournament, VoteResults  # noqa: E402
 from models.deck import DECKS  # noqa: E402
 from models.stake import STAKES  # noqa: E402
+from models.tournament import GameResult  # noqa: E402
 from persistence import TournamentStore  # noqa: E402
 
 
@@ -62,7 +64,7 @@ def test_ban_and_unban_commands(env):
         run(Selection.unbanall, cog, ctx)
 
 
-def test_pullrandom_bans_the_pulled_deck_and_stake_and_skips_banned_options(env):
+def test_pullrandom_skips_banned_options_and_bans_nothing(env):
     cog, ctx, store, tmp_path = env
     t = store.get(1)
     # option 1 shares option 2's deck, option 3 shares option 2's stake, option 4 is unrelated
@@ -73,14 +75,39 @@ def test_pullrandom_bans_the_pulled_deck_and_stake_and_skips_banned_options(env)
     t.vote_results.append(results)
 
     run(Selection.pullrandom, cog, ctx)  # only option 2 has votes
-    assert saved(tmp_path).banned_decks == [a] and saved(tmp_path).banned_stakes == [y]
-    assert "are banned from now on" in ctx.sent[-1]
+    assert not saved(tmp_path).banned_decks and not saved(tmp_path).banned_stakes
+    assert f"add_matches_all {a.name} {y.name}" in ctx.sent[-1]
 
+    t.banned_decks, t.banned_stakes = [a], [y]
     with pytest.raises(SelectionError, match="banned deck or stake"):
         run(Selection.pullrandom, cog, ctx)  # the only voted option is banned now
     results.votes = [3, 5, 4, 2]  # 1 (deck a), 2 and 3 (stake y) are banned: only option 4 is left
     run(Selection.pullrandom, cog, ctx)
-    assert saved(tmp_path).banned_decks == [a, c] and saved(tmp_path).banned_stakes == [y, x]
+    assert f"add_matches_all {c.name} {x.name}" in ctx.sent[-1]
+
+
+def test_add_matches_all_bans_the_combo_but_can_fill_in_skipped_sets():
+    t = ConjoinedTournament()
+    dummies.fill_dummy_teams(t, None)
+    matchups.initialize(t)
+    deck, stake = DECKS[0], STAKES[0]
+    sets = matchups.require_current_round(t).matchups
+    late = sets[0]
+    late.best_of = 3  # so one win doesn't decide it
+    late.add_match(DECKS[1], STAKES[1])  # still playing an earlier match: skipped
+    t.banned_decks, t.banned_stakes = [], []
+
+    added, skipped = matchups.add_matches_all(t, deck, stake)
+    assert late in skipped and len(added) == len(sets) - 1
+    assert t.banned_decks == [deck] and t.banned_stakes == [stake]
+
+    late.matches[0].report_result(GameResult.TEAM1_WIN)
+    added, _ = matchups.add_matches_all(t, deck, stake)  # banned, but this round plays it already
+    assert added == [late]
+    assert t.banned_decks == [deck] and t.banned_stakes == [stake]  # not banned twice
+
+    with pytest.raises(matchups.MatchupError, match="banned"):
+        matchups.add_matches_all(t, deck, STAKES[2])  # a new combo with a banned deck is refused
 
 
 def test_votes_offer_distinct_unbanned_combos_only():

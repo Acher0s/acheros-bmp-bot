@@ -24,6 +24,7 @@ Automatic (signals from the other cogs):
   match result   -> match manifest sent (one archive file per team per match)
   set decided    -> slots freed; a whole-set archive if no match had a start time
   set reopened   -> slots assigned again
+  reset          -> team paths, panels and start times forgotten; slots and Twitch passthrough cleared
   every 10 s     -> panels refreshed (edited only when something changed)
 
 Settings (.env):
@@ -253,11 +254,16 @@ class Stream(commands.Cog):
     # -- teams and paths -----------------------------------------------------------
 
     def _team_paths(self, guild_id: int) -> dict[str, str]:
-        """team name -> teamNN for every registered team, giving new teams the next free path."""
+        """team name -> teamNN for every registered team, giving new teams the next free path.
+        Paths of teams that aren't registered anymore (removed, renamed, dummies) are freed first."""
         state = self._state(guild_id)
         teams = self.bot.store.get(guild_id).teams
+        names = {team.name for team in teams}
+        stale = [name for name in state.team_paths if name not in names]
+        for name in stale:
+            del state.team_paths[name]
         taken = set(state.team_paths.values())
-        changed = False
+        changed = bool(stale)
         for team in teams:
             if team.name in state.team_paths:
                 continue
@@ -766,6 +772,21 @@ class Stream(commands.Cog):
         if not self.configured:
             return
         await self.on_set_started(guild, set_id)
+
+    @commands.Cog.listener()
+    async def on_tournament_reset(self, guild: discord.Guild):
+        state = self._state(guild.id)
+        for saved in (state.team_paths, state.panels, state.set_starts, state.match_starts, state.archived_matches):
+            saved.clear()
+        state.save()
+        if not self.configured:
+            return
+        try:  # the paths go to new teams, so nothing of the old teams may stick to them
+            await self._call("PUT", "/slots", {f"s{pos}t{n}": None for pos in range(1, SET_COUNT + 1) for n in (1, 2)})
+            for n in range(1, TEAM_COUNT + 1):
+                await self._call("PUT", f"/teams/team{n:02d}/twitch", {"channel": None})
+        except StreamError as e:
+            log.warning("Couldn't clear the stream service after the reset: %s", e)
 
     # -- status panels -----------------------------------------------------------------
 

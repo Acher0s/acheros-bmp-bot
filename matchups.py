@@ -145,15 +145,21 @@ def add_match(s: TourneySet, deck: Deck, stake: Stake) -> Match:
 
 
 def add_matches_all(t: ConjoinedTournament, deck: Deck, stake: Stake) -> Tuple[List[TourneySet], List[TourneySet]]:
-    """Adds a match with this deck/stake to every set of the current round that needs one.
+    """Adds a match with this deck/stake to every set of the current round that needs one,
+    then bans the deck and the stake (they've been played).
 
     Returns (sets that got a match, sets skipped). A set is skipped when it is already
     decided or still has an unfinished match, so running this twice never doubles up.
+    A combo this round already plays is allowed again despite its bans, so a second run
+    can fill in the sets the first one skipped.
     """
-    if deck in t.banned_decks:
-        raise MatchupError(f"The **{deck}** deck is banned.")
-    if stake in t.banned_stakes:
-        raise MatchupError(f"The **{stake}** stake is banned.")
+    rnd = t.get_current_round()
+    in_use = rnd is not None and any(m.deck == deck and m.stake == stake for s in rnd.matchups for m in s.matches)
+    if not in_use:
+        if deck in t.banned_decks:
+            raise MatchupError(f"The **{deck}** deck is banned.")
+        if stake in t.banned_stakes:
+            raise MatchupError(f"The **{stake}** stake is banned.")
 
     added, skipped = [], []
     for s in require_current_round(t).matchups:
@@ -162,6 +168,11 @@ def add_matches_all(t: ConjoinedTournament, deck: Deck, stake: Stake) -> Tuple[L
             added.append(s)
         else:
             skipped.append(s)
+    if added:
+        if deck not in t.banned_decks:
+            t.banned_decks.append(deck)
+        if stake not in t.banned_stakes:
+            t.banned_stakes.append(stake)
     return added, skipped
 
 

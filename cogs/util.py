@@ -14,6 +14,10 @@ the asset paths are relative (./assets/...).
 !util createvcs gives every team a private voice channel only its members can see
 (details and the permissions it needs in team_vcs.py). Safe to run again: existing
 channels are kept and their permissions reset.
+
+!util dummyreport 1|2 (testing, in a set's channel) makes the set's dummy team(s)
+pick team 1 or 2 as the winner of the current match, as if they clicked the
+widget. Dummies never upload logs.
 """
 import logging
 from pathlib import Path
@@ -29,6 +33,7 @@ from emojis import deck_emoji_name, stake_emoji_name
 from models.deck import DECKS
 from models.stake import STAKES
 from persistence import StorageError
+from reports import ReportError
 import checks
 import discord_text
 
@@ -186,14 +191,24 @@ class Util(commands.Cog):
             warning = "\n:warning: I couldn't delete all their roles (I need **Manage Roles**). Please delete the leftover `Team: Dummy ...` roles by hand."
         await ctx.send(f"Removed {len(removed)} dummy team(s). {len(t.teams)} team(s) left." + warning)
 
+    @util.command(name="dummyreport", usage="<1|2>")
+    async def dummyreport(self, ctx: commands.Context, winner: int):
+        """DEV: in a set's channel, its dummy team(s) pick team 1 or 2 as the current match's winner (no logs)."""
+        report_cog = self.bot.get_cog("Report")
+        if report_cog is None:
+            raise UtilError("The report cog isn't loaded.")
+        await ctx.send(await report_cog.dummy_vote(ctx.guild, ctx.channel.id, winner, str(ctx.author.id)))
+
     # -- errors ---------------------------------------------------------------
 
     async def cog_command_error(self, ctx: commands.Context, error: Exception):
         if checks.is_silent(error):
             return
         error = getattr(error, "original", error)
-        if isinstance(error, (UtilError, reg.RegistrationError)):
+        if isinstance(error, (UtilError, reg.RegistrationError, ReportError)):
             await ctx.send(str(error))
+        elif isinstance(error, (commands.BadArgument, commands.MissingRequiredArgument)):
+            await ctx.send(f"I couldn't read that. Usage: `!{ctx.command.qualified_name} {ctx.command.signature}`")
         elif isinstance(error, discord.Forbidden):
             log.warning("Missing permission while running %s: %r", ctx.command, error)
             await ctx.send("I'm missing the **Manage Expressions** permission (Manage Emojis and Stickers). "

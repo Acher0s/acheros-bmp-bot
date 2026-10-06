@@ -213,6 +213,11 @@ class TournamentStore:
             self._cache.pop(guild_id, None)
             raise
 
+    def replace(self, guild_id: int, t: ConjoinedTournament) -> None:
+        """Swaps in a whole new tournament for this server (e.g. a reset) and saves it."""
+        self._cache[guild_id] = t
+        self.save(guild_id)
+
     def _load(self, guild_id: int) -> ConjoinedTournament:
         path = self._path(guild_id)
         backup = path.with_name(path.name + ".bak")

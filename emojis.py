@@ -40,6 +40,12 @@ def stake_label(guild: discord.Guild, stake: Stake) -> str:
     return f"{_emoji(guild, stake_emoji_name(stake))}**{stake}** stake"
 
 
+def bans_text(t, guild: discord.Guild) -> str:
+    decks = ", ".join(deck_label(guild, d) for d in t.banned_decks) or "none"
+    stakes = ", ".join(stake_label(guild, s) for s in t.banned_stakes) or "none"
+    return f"Banned decks: {decks}\nBanned stakes: {stakes}"
+
+
 def combo_label(guild: discord.Guild, deck: Deck, stake: Stake) -> str:
     """e.g. '<emoji> **Red** deck / <emoji> **White** stake'"""
     return f"{deck_label(guild, deck)} / {stake_label(guild, stake)}"

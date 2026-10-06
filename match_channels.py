@@ -35,8 +35,16 @@ ARCHIVE_CATEGORY = "Conjoined Archive"
 TOPIC_MARKER = "[conjoined-set:{}]"  # start of every open set channel's topic
 ARCHIVED_PREFIX = "archived-"
 
-# TODO: replace with the real explanation of the match and how to report results.
-INSTRUCTIONS = "_Match instructions and how to report results will appear here._"
+INSTRUCTIONS = """Create/join a lobby like you would normally. The organiser will start the match for everyone at the same time. 
+Have at least one member of your team keep an eye on this channel:
+
+A team may declare they will be matching a skip using the designated communication channel with the opposing team. This forces the opposing team to either take a skip or enter the blind, and the former team to match. Purposeful stalling of skips is not allowed. Not matching the skip after declaring your team will match is not allowed.
+
+you can refer to all the rules here too: docs.google.com/document/d/1jqNzznUPQkLeeYf8pE2PGSv5_3jDYmU-2VyxMVnuWsk/
+
+When you're done with a match, report the result with the button below and upload the logfile through the link provided.
+"""
+
 
 _locks: dict[int, asyncio.Lock] = {}
 

@@ -5,11 +5,14 @@ its *matches* are the individual games, each with a deck and a stake.
 
   Managers only (Administrator permission):
     !conjoined init                       create stage 1 and pair up round 1
-    !conjoined add_matches_all <deck> <stake>
+    !conjoined add_matches_all <deck> <stake>   also bans that deck and stake
+    !conjoined listbans                   the banned decks and stakes
     !conjoined start_matches_all          open a private channel for every set
     !conjoined next_round                 once every set is decided: pair the next round/stage
     !conjoined list_matchups              dev: sets of the current round + IDs
     !conjoined list_matches <set ID>      dev: matches of one set + status
+    !conjoined reset [confirm]            show / do a full wipe: set channels, team VCs and
+                                          roles deleted, teams and stages cleared (tournament_reset.py)
   Everyone:
     !conjoined standings
     !conjoined roundstats [stage] [round]   compare teams (rerolls, money, score) from their logs
@@ -27,7 +30,8 @@ import discord_text
 import match_channels
 import matchups
 import reports
-from emojis import combo_label
+import tournament_reset
+from emojis import bans_text, combo_label
 from matchups import MatchupError
 from persistence import StorageError
 import checks
@@ -88,14 +92,15 @@ class Conjoined(commands.Cog):
     @conjoined.command(name="add_matches_all", usage="<deck> <stake>")
     @manager_only()
     async def add_matches_all(self, ctx: commands.Context, deck: str, stake: str):
-        """Add a match with this deck and stake to every set of the current round that needs one."""
+        """Add a match with this deck and stake to every set of the current round that needs one, and ban both."""
         t = self._tournament(ctx)
         d, s = matchups.find_deck(deck), matchups.find_stake(stake)
         added, skipped = matchups.add_matches_all(t, d, s)
         if added:
             self._save(ctx)
         if added:
-            msg = f"Added a {combo_label(ctx.guild, d, s)} match to {len(added)} set(s)."
+            msg = (f"Added a {combo_label(ctx.guild, d, s)} match to {len(added)} set(s). "
+                   "That deck and stake are banned from now on.")
             if skipped:
                 msg += (f"\nSkipped {len(skipped)} set(s) that are already decided or still have an "
                         f"unfinished match: {_ids(skipped)}")
@@ -173,6 +178,12 @@ class Conjoined(commands.Cog):
         for i, block in enumerate(discord_text.chunks(lines, discord_text.DESCRIPTION_LIMIT)):
             await ctx.send(embed=discord.Embed(title="Next round" if i == 0 else None, description=block))
 
+    @conjoined.command(name="listbans")
+    @manager_only()
+    async def listbans(self, ctx: commands.Context):
+        """List the banned decks and stakes."""
+        await ctx.send(bans_text(self._tournament(ctx), ctx.guild))
+
     @conjoined.command(name="list_matchups")
     @manager_only()
     async def list_matchups(self, ctx: commands.Context):
@@ -198,6 +209,32 @@ class Conjoined(commands.Cog):
                         + ("\n".join(lines) or "No matches yet. Use `!conjoined add_matches_all`."),
         )
         await ctx.send(embed=embed)
+
+    @conjoined.command(name="reset", usage="[confirm]")
+    @manager_only()
+    async def reset(self, ctx: commands.Context, confirm: str = None):
+        """Wipe the tournament to start anew: deletes set channels, team VCs and team roles, clears all data."""
+        t = self._tournament(ctx)
+        cleanup = tournament_reset.collect(ctx.guild, t)
+        if any(c.id == ctx.channel.id for c in cleanup.channels):
+            raise MatchupError("This channel would be deleted by the reset. Run it from another channel.")
+        if confirm is None or confirm.lower() != "confirm":
+            await ctx.send(
+                f":warning: **This deletes {cleanup.summary()}**, and clears the saved tournament: all "
+                f"{len(t.teams)} team(s), every stage and result, the bans and the votes. Registration "
+                "opens again. A copy of the data is kept on disk, but Discord channels and roles can't be "
+                "brought back.\nTo go ahead: `!conjoined reset confirm`")
+            return
+
+        log.warning("%s is resetting the tournament of %s (%s)", ctx.author, ctx.guild.id, cleanup.summary())
+        await ctx.send(f"Resetting: deleting {cleanup.summary()}...")
+        async with ctx.typing():
+            await tournament_reset.wipe_discord(ctx.guild, cleanup)
+            copy = tournament_reset.wipe_data(self.bot.store, ctx.guild.id)
+        # Signal for other cogs (e.g. the stream cog forgets its team paths and frees the slots)
+        self.bot.dispatch("tournament_reset", ctx.guild)
+        await ctx.send("Done: the tournament is empty and registration is open."
+                       + (f" The old data is saved as `{copy}`." if copy else ""))
 
     @conjoined.command(name="standings")
     async def standings(self, ctx: commands.Context):

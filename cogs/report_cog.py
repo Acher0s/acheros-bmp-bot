@@ -336,6 +336,36 @@ class Report(commands.Cog):
             await reply_private(f"Got it: you picked **{_name(_team(s, winner_slot))}**.")
             await self.update_widget(interaction.guild, set_id, match_no)
 
+    async def dummy_vote(self, guild: discord.Guild, channel_id: int, winner_slot: int, by: str) -> str:
+        """Testing: the dummy team(s) of the set in this channel pick the winner of its current
+        match, like a click on the widget. Dummies never upload logs. Returns what happened."""
+        if winner_slot not in reports.SLOTS:
+            raise ReportError("Pick the winner: `1` (team 1) or `2` (team 2).")
+        t = self.bot.store.get(guild.id)
+        s = _set_for_channel(t, channel_id)
+        if s is None:
+            raise ReportError("Use this inside the set's channel.")
+        slots = [slot for slot in reports.SLOTS if is_dummy_team(_team(s, slot))]
+        if not slots:
+            raise ReportError("Neither team in this set is a dummy team.")
+        found = reports.current_match(s)
+        if found is None:
+            raise ReportError("There's no match without a result in this set.")
+        n, m = found
+
+        now = time.time()
+        for slot in slots:
+            reports.vote(m, slot, winner_slot, by, now)
+        status, concluded = self._conclude(t, m)
+        self.bot.store.save(guild.id)
+
+        if concluded:
+            await self._finish(guild, s, n, m, status)
+        else:
+            await self.update_widget(guild, s.set_id, n)
+        voters = " and ".join(f"**{_name(_team(s, slot))}**" for slot in slots)
+        return f"{voters} picked **{_name(_team(s, winner_slot))}** as the winner of match {n}."
+
     # -- after an upload on the web page --------------------------------------
 
     async def after_upload(self, guild_id: int, set_id: int, match_no: int, slot: int):

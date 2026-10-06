@@ -286,7 +286,8 @@ def try_conclude(t, m: Match, now: float) -> ReportStatus:
     if m.state != GameState.FINISHED and status.ready:
         m.report.final = {1: status.pair[0], 2: status.pair[1]}
         _set_result(m, status.log_winner, None, "logs", now)
-        m.report.expires_at = min(m.report.expires_at, now + PAGE_HOURS_AFTER_RESULT * 3600)
+        if m.report.expires_at is not None:
+            m.report.expires_at = min(m.report.expires_at, now + PAGE_HOURS_AFTER_RESULT * 3600)
     return status
 
 
@@ -322,7 +323,7 @@ def manual_result(t, s: TourneySet, m: Match, slot: int, by: str, now: float) ->
     if m.state == GameState.FINISHED:
         raise ReportError("This match already has a result. Use `!report correct` to change it.")
     _set_result(m, _slot(slot), by, "manual", now)
-    if m.report is not None:
+    if m.report is not None and m.report.expires_at is not None:
         m.report.expires_at = min(m.report.expires_at, now)  # close the page
 
 
