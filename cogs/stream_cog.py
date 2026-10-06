@@ -85,6 +85,17 @@ def _text_cell(value) -> str:
     return "'" + value if value[:1] in ("=", "+", "-", "@", "\t", "\r") else value
 
 
+SETTING_NAMES = {"codec": "codec", "bframes": "B-frames", "keyframes": "keyframes", "bitrate": "bitrate",
+                 "resolution": "resolution", "fps": "frame rate", "audio": "sound"}
+
+
+def _settings_problems(settings: dict | None) -> list[str]:
+    """'B-frames (yes)', 'keyframes (at least 8.3 s)', ... for the checks a team's stream fails."""
+    if not settings:
+        return []
+    return [f"{SETTING_NAMES.get(c['key'], c['key'])} ({c['value']})" for c in settings.get("checks", []) if not c["ok"]]
+
+
 def _twitch_text(twitch: dict) -> str:
     """'twitch.tv/name (live)' for a team's Twitch passthrough setting."""
     live = {True: "live", False: "offline"}.get(twitch.get("live"), "not checked yet")
@@ -438,6 +449,8 @@ class Stream(commands.Cog):
                 lines.append("*no logins yet: run `!stream export`*")
             if team.get("twitch"):
                 lines.append(f":tv: via {_twitch_text(team['twitch'])}")
+            if problems := _settings_problems(team.get("settings")):
+                lines.append(f":warning: settings: {', '.join(problems)}")
             label = _esc(names.get(path, team.get('name') or path))
             embed.add_field(name=f"{'' if tested else ':warning: '}{label} ({path})",
                             value="\n".join(lines)[:1024], inline=True)
@@ -464,6 +477,12 @@ class Stream(commands.Cog):
                             value=f"The feed shows {_twitch_text(info['twitch'])}. "
                                   + ("The direct stream below is recorded." if info.get("live") else
                                      "Not recorded: nobody streams to the tournament directly."))
+        if info.get("settings"):
+            problems = _settings_problems(info["settings"])
+            embed.add_field(name="Stream settings", inline=False,
+                            value=":white_check_mark: all good" if not problems else
+                            ":x: " + ", ".join(problems) + ". The player sees how to fix it on the go-live page "
+                            "(Test your setup).")
         if not info.get("live"):
             embed.description = "Not streaming directly right now."
             return await ctx.send(embed=embed)
@@ -764,6 +783,8 @@ class Stream(commands.Cog):
                        f"since {_ts(info['since'], 'R')})"
             else:
                 line = f":black_circle: **{_esc(team.name)}**: not streaming" + (" directly" if info.get("twitch") else "")
+            if info.get("live") and (problems := _settings_problems(info.get("settings"))):
+                line += f"\n:warning: Stream settings need fixing: {', '.join(problems)} (see the go-live page)."
             if info.get("twitch"):
                 line += f"\n:tv: Casters see their Twitch stream, {_twitch_text(info['twitch'])}."
                 if not info.get("live"):
