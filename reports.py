@@ -361,11 +361,13 @@ class TeamStats:
     money_spent: int = 0
     highest_score: Decimal | None = None
     highest_by: str | None = None     # in-game name that scored it
+    poly_hack_cards: int = 0          # polychrome 2s-5s in their final decks, summed over games
 
     def add(self, g: GameRecord) -> None:
         self.games += 1
         self.rerolls += g.rerolls or 0
         self.money_spent += g.money_spent or 0
+        self.poly_hack_cards += g.poly_hack_cards or 0
         score = Decimal(g.highest_score) if g.highest_score else None
         if score is not None and (self.highest_score is None or score > self.highest_score):
             self.highest_score, self.highest_by = score, g.player

@@ -59,6 +59,7 @@ def _game_json(g) -> dict | None:
         "player": g.player, "opponent": g.opponent, "seed": g.seed, "result": g.result,
         "deck": g.deck, "stake": g.stake_name, "rerolls": g.rerolls, "money_spent": g.money_spent,
         "highest_score": g.highest_score, "highest_hand": g.highest_hand, "started_at": g.started_at,
+        "poly_hack_cards": g.poly_hack_cards,
     }
 
 

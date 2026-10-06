@@ -14,6 +14,9 @@ The Multiplayer mod writes these lines (all tagged ":: MULTIPLAYER ::"):
   MP_RLOG: 29 reroll                         one shop reroll
   Client sent message: {"action":"nemesisEndGameStats","reroll_count":11,...}
                                              this player's end-of-game stats
+  Client sent message: {"cards":";S-K-m_lucky-polychrome-Red;...","action":"receiveNemesisDeck"}
+                                             this player's deck when the game ends, one card per
+                                             entry: suit-rank-enhancement-edition-seal
   Client got winGame / loseGame message      the result for the player who wrote the log
   MP_RLOG: END {"result":"win"}              the same result ("win", "loss" or "stop")
   Client got stopGame message: (seed: ...)   back to the lobby: the game is over
@@ -42,6 +45,7 @@ _GOT = re.compile(r"Client got (\w+) message:(.*)$")
 _GOT_PAIR = re.compile(r"\((\w+):\s*([^)]*)\)")
 _RLOG = re.compile(r":: MULTIPLAYER :: MP_RLOG: (.*)$")
 _NAME_SUFFIX = re.compile(r"~\d+$")
+HACK_RANKS = {"2", "3", "4", "5"}  # the ranks the Hack joker retriggers
 
 
 class LogParseError(Exception):
@@ -69,6 +73,18 @@ def _to_int(value) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _poly_hack_cards(cards) -> int | None:
+    """Polychrome cards of rank 2-5 in a deck string like ';S-5-c_base-polychrome-none;...'."""
+    if not isinstance(cards, str):
+        return None
+    count = 0
+    for card in cards.split(";"):
+        parts = card.split("-")
+        if len(parts) >= 4 and parts[1] in HACK_RANKS and parts[3] == "polychrome":
+            count += 1
+    return count
 
 
 def _score(value) -> Decimal | None:
@@ -99,6 +115,7 @@ class GameRecord:
     money_spent: int = 0              # total of all shop spending
     highest_score: str | None = None  # best total reached in one PvP blind
     highest_hand: str | None = None   # best single hand in a PvP blind
+    poly_hack_cards: int | None = None  # polychrome 2s-5s in the final deck (None: deck not in the log)
     game_id: str | None = None
     lobby_code: str | None = None
     started_at: str | None = None     # from the manifest, with the player's UTC offset
@@ -225,6 +242,8 @@ def parse_log(text: str) -> list[GameRecord]:
                 game.rec.money_spent += _to_int(msg.get("amount")) or 0
             elif action == "nemesisEndGameStats":
                 game.stats_rerolls = _to_int(msg.get("reroll_count"))
+            elif action == "receiveNemesisDeck":
+                game.rec.poly_hack_cards = _poly_hack_cards(msg.get("cards"))
             continue
 
         m = _GOT.search(line)

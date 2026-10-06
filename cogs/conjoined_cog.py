@@ -15,7 +15,7 @@ its *matches* are the individual games, each with a deck and a stake.
                                           roles deleted, teams and stages cleared (tournament_reset.py)
   Everyone:
     !conjoined standings
-    !conjoined roundstats [stage] [round]   compare teams (rerolls, money, score) from their logs
+    !conjoined roundstats [stage] [round]   compare teams (rerolls, money, poly hack cards, score) from their logs
 
 This file only reads commands and writes replies. The rules live in matchups.py
 and the channel handling in match_channels.py, so later features (add a match to
@@ -278,6 +278,8 @@ class Conjoined(commands.Cog):
                         value=board(lambda x: x.rerolls, lambda x: f"{x.rerolls}{games(x)}"))
         embed.add_field(name="Most money spent", inline=False,
                         value=board(lambda x: x.money_spent, lambda x: f"${x.money_spent}{games(x)}"))
+        embed.add_field(name="Most poly hack cards", inline=False,
+                        value=board(lambda x: x.poly_hack_cards or None, lambda x: f"{x.poly_hack_cards}{games(x)}"))
         embed.add_field(name="Highest score (PvP blind)", inline=False,
                         value=board(lambda x: x.highest_score,
                                     lambda x: f"{x.highest_score:,} by {matchups._esc(x.highest_by or '?')}"))
