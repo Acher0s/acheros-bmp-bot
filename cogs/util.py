@@ -197,7 +197,7 @@ class Util(commands.Cog):
         report_cog = self.bot.get_cog("Report")
         if report_cog is None:
             raise UtilError("The report cog isn't loaded.")
-        await ctx.send(await report_cog.dummy_vote(ctx.guild, ctx.channel.id, winner, str(ctx.author.id)))
+        await report_cog.dummy_vote(ctx.guild, ctx.channel.id, winner, str(ctx.author.id), ctx.send)
 
     # -- errors ---------------------------------------------------------------
 

@@ -8,7 +8,9 @@ The widget (players)
   The result is recorded once both logs are in and show that winner.
   The widget is posted by the bot as soon as a match needs a result, and every
   WIDGET_MOVE_MINUTES it is re-posted at the bottom of the channel if other
-  messages came after it (silently: re-posts don't notify anyone).
+  messages came after it (silently: re-posts don't notify anyone). Whenever it
+  changes (a vote, an upload) it also goes to the bottom right away: edited in
+  place if it's already the last message, re-posted otherwise.
   While testing, a manager who isn't on either team votes for the set's dummy
   team(s), which can't click themselves.
 
@@ -249,14 +251,15 @@ class Report(commands.Cog):
                 await self._delete_message(channel, old)
 
     async def update_widget(self, guild: discord.Guild, set_id: int, match_no: int) -> None:
-        """Redraws the widget where it is (after an upload)."""
+        """Redraws the widget after a change, at the bottom of the channel: edited in place if it's
+        the last message, re-posted below everything otherwise."""
         t = self.bot.store.get(guild.id)
         s = t.find_set(set_id)
         if s is None or s.channel_id is None or not 1 <= match_no <= len(s.matches):
             return
         m = s.matches[match_no - 1]
         channel = guild.get_channel(s.channel_id)
-        if channel is None or m.report is None or m.report.widget_message_id is None:
+        if channel is None or m.report is None or m.report.widget_message_id is None                 or channel.last_message_id != m.report.widget_message_id:
             return await self.ensure_widget(guild, set_id)
         embed, view = widget_message(guild, s, match_no, m, reports.check(m, reports.used_seeds(t, m)), time.time())
         try:
@@ -330,16 +333,20 @@ class Report(commands.Cog):
         if concluded:
             await interaction.response.defer()
             return await self._finish(interaction.guild, s, match_no, m, status)
-        embed, view = widget_message(interaction.guild, s, match_no, m, status, now)
-        if interaction.message is not None and interaction.message.id == m.report.widget_message_id:
-            await interaction.response.edit_message(embed=embed, view=view)
+        clicked = interaction.message.id if interaction.message is not None else None
+        if clicked == m.report.widget_message_id and interaction.channel.last_message_id == clicked:
+            embed, view = widget_message(interaction.guild, s, match_no, m, status, now)
+            return await interaction.response.edit_message(embed=embed, view=view)  # already at the bottom
+        if clicked == m.report.widget_message_id:
+            await interaction.response.defer()  # the widget moves to the bottom below
         else:  # clicked on an old copy of the widget
             await reply_private(f"Got it: you picked **{_name(_team(s, winner_slot))}**.")
-            await self.update_widget(interaction.guild, set_id, match_no)
+        await self.update_widget(interaction.guild, set_id, match_no)
 
-    async def dummy_vote(self, guild: discord.Guild, channel_id: int, winner_slot: int, by: str) -> str:
+    async def dummy_vote(self, guild: discord.Guild, channel_id: int, winner_slot: int, by: str, reply) -> None:
         """Testing: the dummy team(s) of the set in this channel pick the winner of its current
-        match, like a click on the widget. Dummies never upload logs. Returns what happened."""
+        match, like a click on the widget. Dummies never upload logs. `reply(text)` says what happened,
+        before the widget is updated, so the widget still ends up at the bottom."""
         if winner_slot not in reports.SLOTS:
             raise ReportError("Pick the winner: `1` (team 1) or `2` (team 2).")
         t = self.bot.store.get(guild.id)
@@ -360,12 +367,12 @@ class Report(commands.Cog):
         status, concluded = self._conclude(t, m)
         self.bot.store.save(guild.id)
 
+        voters = " and ".join(f"**{_name(_team(s, slot))}**" for slot in slots)
+        await reply(f"{voters} picked **{_name(_team(s, winner_slot))}** as the winner of match {n}.")
         if concluded:
             await self._finish(guild, s, n, m, status)
         else:
             await self.update_widget(guild, s.set_id, n)
-        voters = " and ".join(f"**{_name(_team(s, slot))}**" for slot in slots)
-        return f"{voters} picked **{_name(_team(s, winner_slot))}** as the winner of match {n}."
 
     # -- after an upload on the web page --------------------------------------
 
