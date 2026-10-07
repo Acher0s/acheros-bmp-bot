@@ -187,14 +187,20 @@ class Conjoined(commands.Cog):
     @conjoined.command(name="list_matchups")
     @manager_only()
     async def list_matchups(self, ctx: commands.Context):
-        """DEV: list the sets of the current round with their IDs."""
+        """List the sets of the current round: both teams and their players side by side, with the set IDs."""
         t = self._tournament(ctx)
         rnd = matchups.require_current_round(t)
         stage = t.stages[t.cur_stage_idx]
-        lines = [matchups.format_set(s) for s in rnd.matchups] or ["No matchups."]
-        for i, block in enumerate(discord_text.chunks(lines, discord_text.DESCRIPTION_LIMIT)):
-            title = f"Stage {t.cur_stage_idx + 1}, round {stage.cur_round_idx + 1}: matchups" if i == 0 else None
-            await ctx.send(embed=discord.Embed(title=title, description=block))
+        title = f"Stage {t.cur_stage_idx + 1}, round {stage.cur_round_idx + 1}: matchups"
+        if not rnd.matchups:
+            return await ctx.send(embed=discord.Embed(title=title, description="No matchups."))
+        # Three inline fields (team 1 | VS | team 2) make one row per set; an embed holds 25 fields, so 8 sets
+        for start in range(0, len(rnd.matchups), 8):
+            embed = discord.Embed(title=title if start == 0 else None)
+            for s in rnd.matchups[start:start + 8]:
+                for name, value in matchups.set_columns(s):
+                    embed.add_field(name=name, value=value, inline=True)
+            await ctx.send(embed=embed)
 
     @conjoined.command(name="list_matches", usage="<set ID>")
     @manager_only()
