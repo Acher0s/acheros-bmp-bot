@@ -36,6 +36,10 @@ def format_team(team: Team) -> str:
     return f"{_esc(team.name)}({', '.join(_esc(p.username) for p in team.players)})"
 
 
+# Braille blanks: invisible, and unlike spaces Discord doesn't trim them (see set_columns)
+MIDDLE_PADDING = "\N{BRAILLE PATTERN BLANK}" * 8
+
+
 def players_line(team: Team) -> str:
     """'> p1 & p2' (a Discord quote line) for the players of a team."""
     return "> " + (" & ".join(_esc(p.username) for p in team.players) or "no players yet")
@@ -48,7 +52,10 @@ def set_columns(s: TourneySet) -> list[tuple[str, str]]:
     team = lambda tm: ("\N{TROPHY} " if winner is tm else "") + _esc(tm.name)
     score = s.get_standings()
     middle = f"Set #{s.set_id}" + (f"\n{score[0]}-{score[1]}" if s.matches and any(score) else "")
-    return [(team(s.team1), players_line(s.team1)), ("VS", middle), (team(s.team2), players_line(s.team2))]
+    # Discord sizes the columns itself (equal thirds, the embed only as wide as needed): invisible
+    # padding after "VS" widens it, which leaves more room between the middle and the last column
+    return [(team(s.team1), players_line(s.team1)), ("VS" + MIDDLE_PADDING, middle),
+            (team(s.team2), players_line(s.team2))]
 
 
 def format_set(s: TourneySet) -> str:
