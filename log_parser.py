@@ -60,12 +60,19 @@ def _clean_name(name) -> str | None:
     return name or None
 
 
+_DECK_KEY = re.compile(r"b_(?:mp_)?([a-z0-9_]+)")
+
+
 def _deck_name(raw) -> str | None:
-    """'Ghost Deck' -> 'Ghost'."""
+    """'Ghost Deck' -> 'Ghost'. The Multiplayer mod's own decks (Orange, Violet) are written as
+    their internal key instead of a name: 'b_mp_orange' -> 'Orange' (same for vanilla keys: 'b_red')."""
     if not raw:
         return None
     raw = str(raw).strip()
-    return raw[:-len(" Deck")] if raw.endswith(" Deck") else raw
+    if raw.endswith(" Deck"):
+        return raw[:-len(" Deck")]
+    key = _DECK_KEY.fullmatch(raw)
+    return key.group(1).replace("_", " ").title() if key else raw
 
 
 def _to_int(value) -> int | None:

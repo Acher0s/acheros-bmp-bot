@@ -37,3 +37,12 @@ def test_no_deck_in_the_log_is_unknown_not_zero():
     [game] = log_parser.parse_log(_log(MANIFEST))
     assert game.poly_hack_cards is None
     assert log_parser.GameRecord.from_dict({"player": "old record"}).poly_hack_cards is None
+
+
+def test_multiplayer_decks_are_named_like_the_tournament_decks():
+    # Orange and Violet come from the Multiplayer mod, whose manifest has the deck's key, not its name
+    manifest = MANIFEST.replace('"deck":"Red Deck"', '"deck":"b_mp_orange"')
+    [game] = log_parser.parse_log(_log(manifest))
+    assert game.deck == "Orange"
+    assert log_parser._deck_name("b_mp_violet") == "Violet" and log_parser._deck_name("Ghost Deck") == "Ghost"
+    assert log_parser._deck_name("b_red") == "Red"
