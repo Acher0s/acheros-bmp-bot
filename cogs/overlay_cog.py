@@ -4,6 +4,7 @@ text per URL, to place into any box of a stream layout.
   /overlay                          list of every URL (open it in a browser to copy them)
   /overlay/slot/<slot>/team         s1t1 .. s8t2: the team on that slot's feed
   /overlay/slot/<slot>/p1 , /p2     its players (Discord display name)
+  /overlay/slot/<slot>/players      both of them in one line, e.g. "alice & bob"
   /overlay/slot/<slot>/standing     its record in the current stage, e.g. 2-1
   /overlay/round                    e.g. "Stage 1 · Round 2"
   /overlay/state.json               the data the pages poll every 2 s
@@ -35,7 +36,7 @@ log = logging.getLogger(__name__)
 ASSETS = Path(__file__).resolve().parent.parent / "assets" / "overlay"
 SLOTS = [f"s{s}t{t}" for s in range(1, 9) for t in (1, 2)]
 CACHE_SECONDS = 1.5
-FIELDS = ["team", "p1", "p2", "standing"]
+FIELDS = ["team", "p1", "p2", "players", "standing"]
 
 
 class Overlay(commands.Cog):

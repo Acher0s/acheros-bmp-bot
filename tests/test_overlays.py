@@ -66,6 +66,7 @@ def test_standing_and_state():
     assert state["round"]["label"] == "Stage 1 · Round 1"
     assert a["team"] == s.team1.name and a["standing"] == "1-0" and b["standing"] == "0-1"
     assert a["p1"] == s.team1.players[0].username.upper()
+    assert a["players"] == " & ".join(p.username.upper() for p in s.team1.players)
     assert a["set_score"] == f"{best_of // 2 + 1}-0" and b["set_score"] == f"0-{best_of // 2 + 1}"
     assert state["slots"]["s2t1"] is None
 

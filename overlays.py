@@ -103,7 +103,8 @@ def build_state(t: ConjoinedTournament, at: float, slot_teams: dict[str, str | N
             state["slots"][slot] = None
             continue
         players = [display_name(p) for p in team.players]
-        entry = {"team": team.name, "p1": players[0] if players else "", "p2": players[1] if len(players) > 1 else ""}
+        entry = {"team": team.name, "p1": players[0] if players else "", "p2": players[1] if len(players) > 1 else "",
+                 "players": " & ".join(players)}
         if stage is not None:
             wins, losses = stage_record_at(stage, team, at)
             entry.update(wins=wins, losses=losses, standing=f"{wins}-{losses}")
