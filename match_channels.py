@@ -3,7 +3,8 @@
   start_set(...)   creates the channel (only the two teams' roles can see it),
                    pings both teams and posts the intro message.
   archive_set(...) locks the channel away from the players and moves it to an
-                   archive category. Call this when a set's result is reported.
+                   archive category. `!conjoined next_round` does this for every
+                   decided set (sets_to_archive).
 
 Restart safety: the only state is Set.channel_id / Set.channel_archived, which is
 saved to disk right after every Discord change. Both functions are idempotent:
@@ -36,6 +37,7 @@ ACTIVE_CATEGORY = "Conjoined Matches"
 ARCHIVE_CATEGORY = "Conjoined Archive"
 TOPIC_MARKER = "[conjoined-set:{}]"  # start of every open set channel's topic
 ARCHIVED_PREFIX = "archived-"
+CATEGORY_LIMIT = 50  # Discord's maximum number of channels in one category
 
 INSTRUCTIONS = """Create/join a lobby like you would normally. The organiser will start the match for everyone at the same time. 
 Have at least one member of your team keep an eye on this channel:
@@ -127,6 +129,20 @@ async def _category(guild: discord.Guild, name: str) -> discord.CategoryChannel:
         name, reason="Conjoined tournament")
 
 
+async def _archive_category(guild: discord.Guild) -> discord.CategoryChannel:
+    """An archive category with room left; another one with the same name once they're all full."""
+    for category in guild.categories:
+        if category.name == ARCHIVE_CATEGORY and len(category.channels) < CATEGORY_LIMIT:
+            return category
+    return await guild.create_category(ARCHIVE_CATEGORY, reason="Conjoined tournament")
+
+
+def sets_to_archive(t) -> list[int]:
+    """IDs of decided sets whose channel is still open to the players."""
+    return [s.set_id for stage in t.stages for r in stage.rounds for s in r.matchups
+            if s.channel_id is not None and not s.channel_archived and s.get_winner() is not None]
+
+
 def _existing_channel(guild: discord.Guild, s: TourneySet):
     marker = TOPIC_MARKER.format(s.set_id)
     return next((c for c in guild.text_channels if c.topic and c.topic.startswith(marker)), None)
@@ -182,7 +198,7 @@ async def archive_set(store: TournamentStore, guild: discord.Guild, set_id: int)
     """Locks the set's channel away from the players and moves it to the archive category.
 
     Returns True if it was archived, False if there was nothing to do. Managers keep
-    access. Call this once a set's result has been reported.
+    access. Only the set's text channel: the teams' voice channels aren't touched.
     """
     async with _lock(guild.id):
         s = _get_set(store, guild.id, set_id)
@@ -202,7 +218,7 @@ async def archive_set(store: TournamentStore, guild: discord.Guild, set_id: int)
             await channel.edit(
                 name=name[:100],
                 topic=topic[:1024],
-                category=await _category(guild, ARCHIVE_CATEGORY),
+                category=await _archive_category(guild),
                 overwrites=overwrites,
                 reason=f"Conjoined set #{set_id} finished",
             )

@@ -8,7 +8,9 @@ its *matches* are the individual games, each with a deck and a stake.
     !conjoined add_matches_all <deck> <stake>   also bans that deck and stake
     !conjoined listbans                   the banned decks and stakes
     !conjoined start_matches_all          open a private channel for every set
-    !conjoined next_round                 once every set is decided: pair the next round/stage
+    !conjoined next_round                 once every set is decided: pair the next round/stage, and
+                                          archive the finished sets' channels (players lose access)
+    !conjoined archive_channels           archive the channel of every decided set now (a retry, or the final)
     !conjoined list_matchups              dev: sets of the current round + IDs
     !conjoined list_matches <set ID>      dev: matches of one set + status
     !conjoined reset [confirm]            show / do a full wipe: set channels, team VCs and
@@ -177,6 +179,44 @@ class Conjoined(commands.Cog):
         lines += ["", "Next: `!conjoined add_matches_all <deck> <stake>`, then `!conjoined start_matches_all`."]
         for i, block in enumerate(discord_text.chunks(lines, discord_text.DESCRIPTION_LIMIT)):
             await ctx.send(embed=discord.Embed(title="Next round" if i == 0 else None, description=block))
+        await self._archive_channels(ctx)
+
+    @conjoined.command(name="archive_channels")
+    @manager_only()
+    async def archive_channels(self, ctx: commands.Context):
+        """Archive the channel of every decided set: the players lose access (next_round does this itself)."""
+        if not await self._archive_channels(ctx):
+            await ctx.send("Nothing to archive: every decided set's channel is already archived.")
+
+    async def _archive_channels(self, ctx: commands.Context) -> bool:
+        """Locks the channels of decided sets away from their players and moves them to the archive.
+        Returns False if there was nothing to archive. Never raises for Discord problems: next_round
+        has already advanced, so the reply says how to retry instead."""
+        set_ids = match_channels.sets_to_archive(self._tournament(ctx))
+        if not set_ids:
+            return False
+        archived, failed = [], []
+        async with ctx.typing():
+            for set_id in set_ids:
+                try:
+                    await match_channels.archive_set(self.bot.store, ctx.guild, set_id)
+                except discord.Forbidden:
+                    failed = [i for i in set_ids if i not in archived]  # every set will fail the same way
+                    log.warning("Missing permission while archiving set #%s", set_id)
+                    break
+                except (discord.HTTPException, MatchupError, StorageError) as e:
+                    log.warning("Couldn't archive set #%s: %r", set_id, e)
+                    failed.append(set_id)
+                else:
+                    archived.append(set_id)
+        lines = []
+        if archived:
+            lines.append(f"Archived {len(archived)} finished set channel(s); their players can't see them anymore.")
+        if failed:
+            lines.append(f":warning: Couldn't archive {', '.join(f'#{i}' for i in failed)} (I need Manage Channels "
+                         "and Manage Roles; details in the bot's log). Fix it, then run `!conjoined archive_channels`.")
+        await ctx.send("\n".join(lines))
+        return True
 
     @conjoined.command(name="listbans")
     @manager_only()
