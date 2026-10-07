@@ -22,10 +22,11 @@
 <span id="text"></span>
 <script>
 (() => {
-  // /overlay/slot/<slot>/<field> (team, p1, p2, standing) or /overlay/round
+  // /overlay/slot/<slot>/<field>, /overlay/standings/<place>/<field> or /overlay/round
   const parts = location.pathname.split("/").filter(Boolean);
-  const slot = parts[1] === "slot" ? parts[2] : null;
-  const field = parts[1] === "slot" ? parts[3] : "round";
+  const kind = parts[1];  // "slot", "standings" or "round"
+  const key2 = parts[2];  // the slot, or the place in the standings (1-based)
+  const field = kind === "round" ? "round" : parts[3];
   const params = new URLSearchParams(location.search);
   const el = document.getElementById("text");
   const FLEX = {left: "flex-start", top: "flex-start", center: "center", middle: "center", right: "flex-end",
@@ -37,7 +38,18 @@
     el.style.textAlign = params.get("align");
   }
   if (params.get("valign")) document.body.style.alignItems = FLEX[params.get("valign")] || "center";
-  if (params.get("color")) el.style.color = "#" + params.get("color").replace("#", "");
+  const hex = (c) => "#" + c.replace("#", "");
+  const baseColor = params.get("color") ? hex(params.get("color")) : "";
+  el.style.color = baseColor;
+  // losscolor=1:ff9900,2:ff0000 -> the color of the highest threshold the team's losses reach
+  const lossColors = (params.get("losscolor") || "").split(",").map((pair) => pair.split(":"))
+    .filter(([n, c]) => c && !isNaN(parseInt(n, 10))).map(([n, c]) => [parseInt(n, 10), hex(c)])
+    .sort((a, b) => a[0] - b[0]);
+  function colorFor(losses) {
+    let color = baseColor;
+    for (const [n, c] of lossColors) if (losses >= n) color = c;
+    return color;
+  }
 
   // The largest whole-pixel size at which the text fits the source's width and height
   function fit() {
@@ -64,8 +76,13 @@
       if (resp.ok) {
         const state = await resp.json();
         let value = "";
-        if (field === "round") value = state.round ? state.round.label : "";
-        else if (state.slots[slot]) value = state.slots[slot][field] || "";
+        if (kind === "round") value = state.round ? state.round.label : "";
+        else if (kind === "slot" && state.slots[key2]) value = state.slots[key2][field] || "";
+        else if (kind === "standings") {
+          const row = (state.standings || [])[parseInt(key2, 10) - 1];
+          if (row) value = String(row[field] ?? "");
+          el.style.color = row ? colorFor(row.losses) : baseColor;
+        }
         if (el.textContent !== value) { el.textContent = value; fit(); }
       }
     } catch (e) { /* bot restarting: keep the last text */ }

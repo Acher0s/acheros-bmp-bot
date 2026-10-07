@@ -6,12 +6,17 @@ text per URL, to place into any box of a stream layout.
   /overlay/slot/<slot>/p1 , /p2     its players (Discord display name)
   /overlay/slot/<slot>/players      both of them in one line, e.g. "alice & bob"
   /overlay/slot/<slot>/standing     its record in the current stage, e.g. 2-1
+  /overlay/standings/<n>/<field>    n = 1 .. 16: the team in that place of the standings (set wins and
+                                    losses over the whole tournament: most wins, then fewest losses,
+                                    then by name). field: team, p1, p2, players, or score (e.g. 3-1)
   /overlay/round                    e.g. "Stage 1 · Round 2"
   /overlay/state.json               the data the pages poll every 2 s
 
 The text is as large as fits the Browser Source's box (width and height, refitted when the source
 is resized), centered both ways. Optional query options: size=N (largest size in px), align=left|
 center|right, valign=top|middle|bottom, color=000000, key=... (required when OVERLAY_KEY is set).
+Standings pages also take losscolor=<losses>:<color>,...: the color for teams with at least that many
+losses, e.g. losscolor=1:ff9900,2:ff0000 (orange at one loss, red from two; otherwise `color`).
 
 The text follows the casters' delayed feeds (stream service lineup): the team on each slot and
 standings as of feed time, so it never shows a result before viewers see it. Without the stream
@@ -37,6 +42,8 @@ ASSETS = Path(__file__).resolve().parent.parent / "assets" / "overlay"
 SLOTS = [f"s{s}t{t}" for s in range(1, 9) for t in (1, 2)]
 CACHE_SECONDS = 1.5
 FIELDS = ["team", "p1", "p2", "players", "standing"]
+STANDING_FIELDS = ["team", "p1", "p2", "players", "score"]
+PLACES = 16
 
 
 class Overlay(commands.Cog):
@@ -58,6 +65,7 @@ class Overlay(commands.Cog):
         app.router.add_get("/overlay", self.index)
         app.router.add_get("/overlay/", self.index)
         app.router.add_get("/overlay/slot/{slot}/{field}", self.page)
+        app.router.add_get("/overlay/standings/{place}/{field}", self.page)
         app.router.add_get("/overlay/round", self.page)
         app.router.add_get("/overlay/state.json", self.state_json)
         app.router.add_get("/overlay/m6x11.ttf", self.font)
@@ -91,7 +99,7 @@ class Overlay(commands.Cog):
     async def build(self) -> dict:
         guild = self._guild()
         if guild is None:
-            return {"round": None, "slots": {slot: None for slot in SLOTS}, "source": "none"}
+            return {"round": None, "slots": {slot: None for slot in SLOTS}, "standings": [], "source": "none"}
         t = self.bot.store.get(guild.id)
         stream = self.bot.get_cog("Stream")
         set_starts = stream._state(guild.id).set_starts if stream else {}
@@ -139,8 +147,10 @@ class Overlay(commands.Cog):
         return web.json_response(self._cache[1], headers={"Cache-Control": "no-store"})
 
     async def page(self, request: web.Request) -> web.Response:
-        slot, field = request.match_info.get("slot"), request.match_info.get("field")
+        slot, place, field = (request.match_info.get(k) for k in ("slot", "place", "field"))
         if slot is not None and (slot not in SLOTS or field not in FIELDS):
+            raise web.HTTPNotFound()
+        if place is not None and (place not in {str(n) for n in range(1, PLACES + 1)} or field not in STANDING_FIELDS):
             raise web.HTTPNotFound()
         return web.FileResponse(ASSETS / "overlay.html", headers={"Cache-Control": "no-store"})
 
@@ -157,6 +167,9 @@ class Overlay(commands.Cog):
             links = [f'<a href="{base}/overlay/slot/{slot}/{f}{query}">{f}</a>' for f in FIELDS]
             rows.append(f"<tr><td>{slot}</td><td>{' · '.join(links)}</td></tr>")
         rows.append(f'<tr><td>round</td><td><a href="{base}/overlay/round{query}">round</a></td></tr>')
+        for place in range(1, PLACES + 1):
+            links = [f'<a href="{base}/overlay/standings/{place}/{f}{query}">{f}</a>' for f in STANDING_FIELDS]
+            rows.append(f"<tr><td>standings #{place}</td><td>{' · '.join(links)}</td></tr>")
         html = ("<!doctype html><meta charset=utf-8><title>Overlays</title>"
                 "<style>body{font-family:sans-serif;margin:2em;background:#222;color:#eee}a{color:#7cf}"
                 "td{padding:.3em 1em}</style><h1>OBS browser sources</h1>"
@@ -164,6 +177,8 @@ class Overlay(commands.Cog):
                 "black on a transparent background. Add <code>?size=48</code> (largest size), "
                 "<code>?align=left</code>, <code>?valign=top</code> or <code>?color=ffffff</code> to change it "
                 "(join several with <code>&amp;</code>).</p>"
+                "<p>Standings pages also take <code>?losscolor=1:ff9900,2:ff0000</code>: the color for teams "
+                "with at least that many losses.</p>"
                 f"<table>{''.join(rows)}</table>")
         return web.Response(text=html, content_type="text/html")
 

@@ -76,3 +76,24 @@ def test_round_at_uses_set_start_times():
     first = t.get_current_round().matchups[0]
     assert overlays.round_at(t, {str(first.set_id): T0}, T0 + 10) == (0, 0)
     assert overlays.round_at(t, {}, T0) == (0, 0)  # unknown: current round
+
+
+def test_standings_sort_by_wins_then_losses_then_name():
+    t = _tournament()
+    rnd = t.get_current_round()
+    for n, s in enumerate(rnd.matchups):
+        s.add_match(matchups.find_deck("Red"), matchups.find_stake("White"))
+        _win(s.matches[0], n % 2 == 0, T0 + 100)  # stage 1 is best of 1: one win decides the set
+    before = overlays.standings_at(t, T0 + 50)
+    assert all((w, l) == (0, 0) for _, w, l in before)  # feed hasn't reached the results yet
+    assert [tm.name for tm, _, _ in before] == sorted((tm.name for tm in t.teams), key=str.casefold)
+
+    after = overlays.standings_at(t, T0 + 150)
+    assert [(w, l) for _, w, l in after] == [(1, 0)] * 8 + [(0, 1)] * 8
+    winners = [tm.name for tm, _, _ in after[:8]]
+    assert winners == sorted(winners, key=str.casefold)
+
+    state = overlays.build_state(t, T0 + 150, {}, {}, lambda p: p.username)
+    first = state["standings"][0]
+    assert first["rank"] == 1 and first["team"] == winners[0] and first["score"] == "1-0" and first["losses"] == 0
+    assert len(state["standings"]) == 16 and state["standings"][-1]["score"] == "0-1"

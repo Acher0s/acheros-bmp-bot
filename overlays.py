@@ -54,6 +54,24 @@ def stage_record_at(stage, team: Team, t: float) -> tuple[int, int]:
     return wins, losses
 
 
+def tournament_record_at(t: ConjoinedTournament, team: Team, at: float) -> tuple[int, int]:
+    """(set wins, set losses) over every stage so far, counting results recorded up to `at`."""
+    records = [stage_record_at(stage, team, at) for stage in t.stages]
+    return sum(w for w, _ in records), sum(l for _, l in records)
+
+
+def standings_at(t: ConjoinedTournament, at: float) -> list[tuple[Team, int, int]]:
+    """Every team with its (wins, losses) at `at`: most wins first, then fewest losses, then by name."""
+    rows = [(team, *tournament_record_at(t, team, at)) for team in t.teams]
+    return sorted(rows, key=lambda row: (-row[1], row[2], row[0].name.casefold()))
+
+
+def _team_entry(team: Team, display_name) -> dict:
+    players = [display_name(p) for p in team.players]
+    return {"team": team.name, "p1": players[0] if players else "", "p2": players[1] if len(players) > 1 else "",
+            "players": " & ".join(players)}
+
+
 def find_set(t: ConjoinedTournament, set_id: int):
     """(stage index, round index, set) or None."""
     for si, stage in enumerate(t.stages):
@@ -85,11 +103,12 @@ def build_state(t: ConjoinedTournament, at: float, slot_teams: dict[str, str | N
     """Everything the overlays need, as of time `at`.
 
     slot_teams: slot -> team name on that slot at `at` (None: nobody, slate)
+    standings: every team in standings_at order, with its record over the whole tournament
     display_name: Player -> name to show (e.g. their server display name)
     """
     teams = {team.name: team for team in t.teams}
     where = round_at(t, set_starts, at)
-    state = {"round": None, "slots": {}}
+    state = {"round": None, "slots": {}, "standings": []}
     stage = rnd = None
     if where is not None:
         si, ri = where
@@ -102,9 +121,7 @@ def build_state(t: ConjoinedTournament, at: float, slot_teams: dict[str, str | N
         if team is None:
             state["slots"][slot] = None
             continue
-        players = [display_name(p) for p in team.players]
-        entry = {"team": team.name, "p1": players[0] if players else "", "p2": players[1] if len(players) > 1 else "",
-                 "players": " & ".join(players)}
+        entry = _team_entry(team, display_name)
         if stage is not None:
             wins, losses = stage_record_at(stage, team, at)
             entry.update(wins=wins, losses=losses, standing=f"{wins}-{losses}")
@@ -114,4 +131,7 @@ def build_state(t: ConjoinedTournament, at: float, slot_teams: dict[str, str | N
             own, other = (w1, w2) if s.team1 == team else (w2, w1)
             entry.update(set_id=s.set_id, set_score=f"{own}-{other}", best_of=s.best_of)
         state["slots"][slot] = entry
+    for rank, (team, wins, losses) in enumerate(standings_at(t, at), start=1):
+        state["standings"].append({"rank": rank, **_team_entry(team, display_name),
+                                   "wins": wins, "losses": losses, "score": f"{wins}-{losses}"})
     return state
