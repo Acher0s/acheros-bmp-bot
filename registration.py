@@ -113,6 +113,20 @@ def remove_players(t: ConjoinedTournament, team: Team, players: Iterable[Player]
     return False
 
 
+def substitute_player(t: ConjoinedTournament, team: Team, out: Player, sub: Player) -> None:
+    """Swaps one player of a team for another, also after the tournament has started: the team
+    keeps its name, record and sets. The newcomer takes the outgoing player's place (p1 or p2)."""
+    idx = next((i for i, p in enumerate(team.players) if p.uid == out.uid), None)
+    if idx is None:
+        raise RegistrationError(f"<@{out.uid}> isn't on **{_esc(team.name)}**.")
+    if sub.uid == out.uid:
+        raise RegistrationError("That's the same player twice.")
+    current = team_of(t, sub.uid)
+    if current is not None:
+        raise RegistrationError(f"<@{sub.uid}> is already on **{_esc(current.name)}**.")
+    team.players[idx] = sub
+
+
 def disband_team(t: ConjoinedTournament, team: Team) -> None:
     _require_open(t)
     t.teams.remove(team)

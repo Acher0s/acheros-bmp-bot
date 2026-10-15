@@ -125,6 +125,19 @@ class Teams(commands.Cog):
             warn = await self._sync_roles(ctx, team, removed)
             await ctx.send(f"Updated {format_team(team)}." + warn)
 
+    @team.command(name="sub", usage='"<team name>" @out @in')
+    async def team_sub(self, ctx: commands.Context, team_name: str, out: discord.User, sub: discord.Member):
+        """Swap a player of a team for another (also after the start): the team keeps its record and sets,
+        and the team role moves to the newcomer. Swap back the same way."""
+        self._reject_bots([sub])
+        t = self._tournament(ctx)
+        team = reg.require_team(t, team_name)
+        reg.substitute_player(t, team, to_player(out), to_player(sub))
+        self._save(ctx)
+        warn = await self._sync_roles(ctx, team, removed=[to_player(out)])
+        await ctx.send(f"{sub.mention} is in for {out.mention}: {format_team(team)}.\n"
+                       "Run `!stream export` to update the stream logins, and send the newcomer their link." + warn)
+
     @team.command(name="disband")
     async def team_disband(self, ctx: commands.Context, *, team_name: str):
         """Disband a team."""
